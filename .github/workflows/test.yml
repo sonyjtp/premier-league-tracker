@@ -93,4 +93,4 @@ jobs:
           python-version: '3.10'
 
       - name: Set up pre-commit
-        uses: pre-commit/action@v3
+        uses: pre-commit/action@v4
