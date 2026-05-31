@@ -1,82 +1,391 @@
 # Premier League Stats & Performance Tracker
 
-A Python-React-Postgres stack for visualizing and comparing English Premier League player and team performances across the last 10 seasons.
+[![Python](https://img.shields.io/badge/Python-3.10+-3776ab?style=flat-square&logo=python)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-18+-61dafb?style=flat-square&logo=react)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5+-3178c6?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?style=flat-square&logo=docker)](https://www.docker.com)
+[![Redis](https://img.shields.io/badge/Redis-Caching-dc382d?style=flat-square&logo=redis)](https://redis.io)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-3+-38b2ac?style=flat-square&logo=tailwind-css)](https://tailwindcss.com)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js)](https://nodejs.org)
+[![Vite](https://img.shields.io/badge/Vite-5+-646cff?style=flat-square&logo=vite)](https://vitejs.dev)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-## Directory Structure
+A comprehensive Python-React-PostgreSQL analytics platform for visualizing and comparing English Premier League player and team performances with cross-league European data. Track 10 seasons of historical data, live match updates, and advanced statistics from multiple sports data APIs.
 
-- `backend/` - Python FastAPI application, database schemas, and data pipelines.
-- `frontend/` - React SPA (Vite + TypeScript + CSS).
-- `docker-compose.yml` - Runs the PostgreSQL database container.
-- `db_backup.sh` - Backs up the Postgres database to an architecture-independent `.dump` file.
-- `db_restore.sh` - Restores the database from the latest backup.
-- `db_data/` - Git-ignored local database directory bound to the Postgres container (created on startup).
-- `db_dumps/` - Folder containing the portable database backup files.
+## 🎯 Key Features
 
-## Getting Started
+### 📊 **League & Team Analytics**
+- **Premier League Standings** – Complete season tables with position tracking, points, goal differential, and form strips
+- **Top 5 European Leagues** – Browse Premier League, La Liga, Serie A, Bundesliga, and Ligue 1 with real-time standings
+- **Team Profiles** – Deep-dive into team performance: season history, stats trends, squad rosters, and recent fixtures
+- **Team Comparison** – Side-by-side comparison of any two teams across all stats and seasons
+- **Rise & Fall Analytics** – Track position changes season-over-season with historical standing trends
+
+### ⚽ **Player Analytics**
+- **Player Profiles** – Comprehensive player pages with season-by-season breakdown of goals, assists, clean sheets, and FPL points
+- **Player Comparison** – Compare any two players side-by-side across multiple seasons with charts
+- **Player Search** – Global player search (⌘K / Ctrl+K) with instant navigation to profile pages
+- **Recent Match Stats** – Last 10 actual match appearances with opponent, minutes played, and points earned
+- **Squad Browser** – Click-to-navigate squad rosters grouped by position (Goalkeepers, Defenders, Midfielders, Attackers)
+
+### ⚡ **Live & Upcoming Matches**
+- **Live Scoreboards** – Real-time match updates with status indicators and live scores
+- **Upcoming Fixtures** – Next 7 days of Premier League matches with team logos and kickoff times
+- **Match Details Modal** – Drill into match events, team lineups in formation view, and advanced analytics (xG race, possession %, PPDA)
+
+### 🔧 **User Preferences & Customization**
+- **Settings Page** – Configure default league (Premier League by default) and team (Tottenham Hotspur by default)
+- **Persistent Settings** – Defaults persist across browser sessions via localStorage
+- **Smart Defaults** – Default team automatically pre-selects in Team Form, Rise & Fall, and other comparison views
+
+### 📈 **Advanced Analytics**
+- **Historical Data** – 10 complete seasons (2015-2026) of player and team statistics
+- **Season Comparison Charts** – Line and bar charts for FPL points progression and goals/assists trends
+- **Form Analysis** – Visual form strips (W/D/L indicators) for recent performance
+- **Goal Differential Tracking** – Points gap to leader, position badges (UCL green, Europa blue, relegation red)
+
+### 🔌 **Multi-Source Data Integration**
+- **Fantasy Premier League API** – Player rosters, FPL points, historical player data
+- **API-Football (api-sports.io)** – Live fixtures, upcoming matches, team squads, European league data
+- **TheStatsAPI** – Match analytics and advanced statistics (fallback source)
+
+### ⚙️ **Background Services**
+- **APScheduler Jobs** – Automated sync jobs:
+  - Live fixtures: every 60 seconds (when available)
+  - Upcoming fixtures: every 5 minutes
+  - Match analytics: every 2 hours
+  - Player profiles: daily at 3 AM
+  - Advanced stats: weekly on Mondays at 4 AM
+- **Redis Caching** – Multi-tier TTL strategy:
+  - Live data: 60 seconds
+  - Upcoming: 5 minutes
+  - Current season: 1 hour
+  - Player profiles: 7 days (sliding expiration)
+  - Historical: 180 days (sliding expiration)
+
+## 🏗️ Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Recharts |
+| **Backend** | Python 3.10+, FastAPI, SQLAlchemy ORM, Pydantic |
+| **Database** | PostgreSQL 15, Redis (caching) |
+| **Infrastructure** | Docker, Docker Compose |
+| **API Integration** | Fantasy Premier League, API-Football, TheStatsAPI |
+| **State Management** | React Context API |
+| **Scheduling** | APScheduler |
+
+## 📁 Directory Structure
+
+```
+.
+├── backend/                          # FastAPI application
+│   ├── app/
+│   │   ├── main.py                   # 15+ REST API endpoints
+│   │   ├── models.py                 # SQLAlchemy tables (Teams, Players, Matches, etc.)
+│   │   ├── schemas.py                # Pydantic request/response schemas
+│   │   ├── crud.py                   # Database query functions
+│   │   ├── config.py                 # Environment configuration
+│   │   ├── database.py               # DB connection & session management
+│   │   ├── services/
+│   │   │   ├── cache.py              # Redis cache-aside pattern
+│   │   │   ├── api_football.py       # API-Football HTTP client
+│   │   │   └── the_stats_api.py      # TheStatsAPI HTTP client
+│   │   └── pipeline/
+│   │       ├── ingest.py             # FPL data ingestion & player sync
+│   │       ├── migrate.py            # Database migrations
+│   │       └── sync_external.py      # APScheduler jobs for data sync
+│   ├── requirements.txt              # Python dependencies
+│   └── .env                          # Environment variables (API keys)
+├── frontend/                         # React SPA
+│   ├── src/
+│   │   ├── App.tsx                   # Main app component with routing
+│   │   ├── components/
+│   │   │   ├── Navbar.tsx            # Tab navigation (Leagues, Rise & Fall, Team Form, Live, Settings)
+│   │   │   ├── LeaguesTab.tsx        # European leagues standings browser
+│   │   │   ├── StandingsTab.tsx      # PL standings table with position tracking
+│   │   │   ├── RiseFallTab.tsx       # Season-over-season position changes
+│   │   │   ├── TeamFormTab.tsx       # Team comparison & form analysis
+│   │   │   ├── LiveTab.tsx           # Live match scoreboard
+│   │   │   ├── TeamPage.tsx          # Team profile with stats & squad
+│   │   │   ├── ExternalTeamPage.tsx  # European league team profiles
+│   │   │   ├── PlayerPage.tsx        # Player profile with comparison
+│   │   │   ├── PlayerSearchModal.tsx # Global player/team search modal
+│   │   │   └── SettingsPage.tsx      # User preference settings
+│   │   ├── contexts/
+│   │   │   └── SettingsContext.tsx   # React Context for default league/team
+│   │   ├── App.css                   # Global styles
+│   │   └── index.css                 # Tailwind + glassmorphism utilities
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── vite.config.ts
+├── docker-compose.yml                # PostgreSQL + Redis containers
+├── db_backup.sh                      # Database backup script
+├── db_restore.sh                     # Database restore script
+└── README.md                         # This file
+```
+
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (to run Postgres locally).
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - Python 3.10+
 - Node.js 18+
 
-### Running the Database
+### Quick Start
 
-1. Spin up the local database container:
+1. **Clone the repository**
+   ```bash
+   git clone <repo-url>
+   cd premier-league-tracker
+   ```
+
+2. **Spin up PostgreSQL & Redis**
    ```bash
    docker compose up -d
-   ```
-2. Check logs to confirm it's running:
-   ```bash
-   docker compose logs -f
+   docker compose logs -f  # Verify containers are running
    ```
 
-### Running the Backend
-
-The backend is a FastAPI app managed with a Python virtual environment.
-
-1. Create and activate the virtual environment (first time only):
+3. **Set up the backend**
    ```bash
+   cd backend
    python3 -m venv venv
-   source venv/bin/activate
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
    ```
-2. Activate the virtual environment (subsequent runs):
+
+4. **Configure environment variables**
    ```bash
-   source venv/bin/activate
+   # Create .env in backend/ with:
+   DATABASE_URL=postgresql://postgres:password@localhost:5432/pl_db
+   API_FOOTBALL_KEY=your_api_sports_key
+   STATS_API_KEY=your_stats_api_key
+   REDIS_URL=redis://localhost:6379/0
+   CURRENT_SEASON_YEAR=2025
    ```
-3. Install dependencies (first time only):
+
+5. **Initialize the database**
    ```bash
-   pip install -r backend/requirements.txt
+   cd backend
+   python -m app.pipeline.migrate
+   python -m app.pipeline.ingest  # Fetch FPL data
+   python -m app.pipeline.sync_external  # Sync external API data
    ```
-4. Start the FastAPI server:
+
+6. **Start the backend**
    ```bash
-   cd backend && uvicorn app.main:app --reload
+   cd backend
+   uvicorn app.main:app --reload
+   # API available at http://localhost:8000
+   # OpenAPI docs at http://localhost:8000/docs
    ```
-   The API will be available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
 
-### Running the Frontend
-
-The frontend is a React + Vite app.
-
-1. Install dependencies (first time only):
+7. **Start the frontend (new terminal)**
    ```bash
-   cd frontend && npm install
+   cd frontend
+   npm install
+   npm run dev
+   # App available at http://localhost:5173
    ```
-2. Start the dev server:
-   ```bash
-   cd frontend && npm run dev
-   ```
-   The app will be available at `http://localhost:5173`.
 
-### Backing Up & Migrating
+## 📡 API Endpoints
 
-Because raw database volumes are processor-architecture dependent (e.g. they will break when copying between Intel and Apple Silicon), use the provided scripts:
+### Standings & Leagues
+- `GET /api/standings?season_id=<id>` – PL standings for a season
+- `GET /api/leagues` – List of top 5 European leagues
+- `GET /api/leagues/{league_id}/standings?season=<year>` – European league standings
 
-- **Backup**: Runs a clean `pg_dump` and saves it in `./db_dumps/pl_db_backup_latest.dump`.
-  ```bash
-  ./db_backup.sh
-  ```
-- **Restore**: Restores the latest dump back into your local container.
-  ```bash
-  ./db_restore.sh
-  ```
+### Teams
+- `GET /api/teams` – All PL teams
+- `GET /api/teams/{team_id}/overview` – Team profile with season history
+- `GET /api/teams/{team_id}/squad` – Team roster with player details
+- `GET /api/teams/{team_id}/form?season_id=<id>` – Recent match form & H2H history
+- `GET /api/teams/{team_id}/seasons-compare` – Season-by-season comparison
+
+### Players
+- `GET /api/players?query=<name>` – Search players by name
+- `GET /api/players/compare?ids=<id1>,<id2>` – Compare two players across all seasons
+
+### Fixtures & Matches
+- `GET /api/fixtures/live` – Live matches (cached 60s)
+- `GET /api/fixtures/upcoming` – Next 7 days of fixtures (cached 5min)
+- `GET /api/fixtures/{fixture_id}/events` – Match events timeline
+- `GET /api/fixtures/{fixture_id}/lineups` – Team lineups in formation
+
+### External League Data
+- `GET /api/external/teams/{team_api_id}/fixtures?league_id=<id>&season=<year>` – European team fixtures
+- `GET /api/external/teams/{team_api_id}/squad` – European team squad
+
+## 🗄️ Database Schema Overview
+
+### Core Tables
+- **teams** – PL teams with fpl_id, api_football_id
+- **players** – PL players with current_fpl_id, fpl_team_id, position
+- **matches** – Fixture results with home/away goals, shots, SoT
+- **seasons** – Historical seasons (2015-2026)
+- **gameweek_standings** – Standings snapshot per gameweek
+
+### Extended Tables
+- **player_season_summary** – Aggregated stats per player per season
+- **player_match_stat** – Per-match player stats (minutes, goals, assists, FPL points)
+- **player_advanced_stats** – xG, xA, progressive stats (when available)
+- **team_profile** – External team metadata (logo, country, founded)
+- **match_lineups** – Formation data and player lineups
+- **match_events** – Goals, cards, substitutions, etc.
+
+## 🔐 Authentication & Environment
+
+The app requires API keys for external data sources:
+
+```env
+# Fantasy Premier League (free)
+# No API key needed; uses official public endpoints
+
+# API-Football (api-sports.io)
+API_FOOTBALL_KEY=your_key_here
+# Get from: https://rapidapi.com/api-sports/api/api-football
+
+# TheStatsAPI (for advanced stats fallback)
+STATS_API_KEY=your_key_here
+```
+
+## 🎮 User Features
+
+### Navigation
+- **Tab-based interface** – Leagues, Rise & Fall, Team Form, Live, Settings
+- **Global search** – ⌘K / Ctrl+K to search any player or team
+- **Click navigation** – Team names and player names are clickable throughout
+- **Breadcrumb returns** – "Back" buttons preserve navigation context
+
+### Default Preferences
+- **Default League** – Premier League (configurable in Settings)
+- **Default Team** – Tottenham Hotspur (configurable in Settings)
+- These defaults pre-select in Team Form, Rise & Fall, and other comparison views
+
+### Responsive Design
+- Mobile-first Tailwind CSS layout
+- Glassmorphism UI with backdrop blur effects
+- Dark theme with indigo/emerald accents
+- Charts adapt from fixed to responsive heights
+
+## 🔄 Data Sync & Caching
+
+### Sync Jobs (APScheduler)
+| Job | Frequency | TTL |
+|-----|-----------|-----|
+| Live matches | 60s (optional) | 60s |
+| Upcoming fixtures | 5min | 5min |
+| Match analytics | 2h | 1h |
+| Player profiles | Daily (3 AM) | 7 days |
+| Advanced stats | Weekly (Mon 4 AM) | 7 days |
+
+### Cache Tiers
+- **Live/Real-time**: 60–300 seconds (Redis)
+- **Current season**: 1–3600 seconds (Redis)
+- **Historical**: 15–180 days (Postgres + Redis sliding)
+
+## 📸 Features by Page
+
+### Leagues Tab
+- Browse 5 European leagues with live standings
+- Season selector (2021–2026)
+- Zone legend (UCL green, Europa blue, Relegation red)
+- Click team names to view profiles
+- European team squads grouped by position
+
+### Standings Tab
+- Complete PL standings with all teams
+- Position change indicators (↑↓ vs previous gameweek)
+- Form strips (last 5 results)
+- Goal differential to leader
+- Clickable team names
+
+### Rise & Fall Tab
+- Season-by-season position changes (line chart)
+- Filter by team or compare multiple teams
+- View season history table
+- Identify climbing/falling teams
+
+### Team Form Tab
+- Compare two teams head-to-head
+- Recent form with opponent and result
+- H2H record (W-D-L)
+- Season selection
+- Clickable team names
+
+### Player Comparison
+- Search any player globally (⌘K)
+- Compare side-by-side across seasons
+- Season-by-season stats table
+- FPL points and goals/assists charts
+- Recent match history
+
+### Live Tab
+- Real-time match scoreboard
+- Live score updates (when available)
+- Upcoming fixtures grouped by date
+- Status indicators (🟩 live, ⏰ upcoming)
+- Click matches for detailed analytics
+
+### Settings Page
+- Set default league (auto-selects in Leagues tab)
+- Set default team (pre-fills Team Form, Rise & Fall)
+- Visual feedback with save confirmations
+
+## 🛠️ Development
+
+### Running Tests
+```bash
+cd backend
+pytest
+```
+
+### Database Migrations
+```bash
+cd backend
+python -m app.pipeline.migrate
+```
+
+### Backing Up & Restoring Data
+```bash
+# Backup to portable dump
+./db_backup.sh
+
+# Restore from latest dump
+./db_restore.sh
+```
+
+### Hot Reload
+- Backend: Uvicorn auto-reloads on file changes
+- Frontend: Vite HMR on React/CSS changes
+
+## 📝 Commit Message Format
+
+Follow conventional commits:
+```
+feat: add player comparison feature
+fix: resolve cache timeout issue
+docs: update API endpoint documentation
+refactor: simplify team fetch logic
+test: add fixtures for match analytics
+```
+
+## 📄 License
+
+MIT License – see LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- **Fantasy Premier League** – Player data, FPL points
+- **API-Football (api-sports.io)** – Live fixtures, European league data
+- **TheStatsAPI** – Advanced analytics (xG, xA) fallback
+- **Recharts** – Data visualization
+- **Tailwind CSS** – Styling
+- **SQLAlchemy** – ORM
+
+---
+
+**Built with ❤️ for Premier League Analytics**
