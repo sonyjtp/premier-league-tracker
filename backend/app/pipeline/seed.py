@@ -1,6 +1,7 @@
 from app.database import SessionLocal
 from app.models import Competition, Season
 
+
 def seed_initial_data():
     db = SessionLocal()
     try:
@@ -13,7 +14,11 @@ def seed_initial_data():
         ]
 
         for comp_data in competitions:
-            existing = db.query(Competition).filter(Competition.code == comp_data["code"]).first()
+            existing = (
+                db.query(Competition)
+                .filter(Competition.code == comp_data["code"])
+                .first()
+            )
             if not existing:
                 comp = Competition(**comp_data)
                 db.add(comp)
@@ -27,7 +32,10 @@ def seed_initial_data():
             {"label": "2017-2018", "season_code": "1718"},
             {"label": "2018-2019", "season_code": "1819"},
             {"label": "2019-2020", "season_code": "1920"},
-            {"label": "2020-2021", "season_code": "2021"},  # note: football-data.co.uk uses '2021' for 20/21
+            {
+                "label": "2020-2021",
+                "season_code": "2021",
+            },  # note: football-data.co.uk uses '2021' for 20/21
             {"label": "2021-2022", "season_code": "2122"},
             {"label": "2022-2023", "season_code": "2223"},
             {"label": "2023-2024", "season_code": "2324"},
@@ -36,7 +44,11 @@ def seed_initial_data():
         ]
 
         for season_data in seasons:
-            existing = db.query(Season).filter(Season.season_code == season_data["season_code"]).first()
+            existing = (
+                db.query(Season)
+                .filter(Season.season_code == season_data["season_code"])
+                .first()
+            )
             if not existing:
                 season = Season(**season_data)
                 db.add(season)
@@ -52,6 +64,7 @@ def seed_initial_data():
         raise e
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     seed_initial_data()

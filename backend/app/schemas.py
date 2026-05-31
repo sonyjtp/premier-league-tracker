@@ -1,6 +1,7 @@
-from pydantic import BaseModel
-from datetime import date, datetime
+from datetime import date
 from typing import List, Optional
+
+from pydantic import BaseModel
 
 
 class CompetitionSchema(BaseModel):
@@ -187,6 +188,7 @@ class TeamProfileSchema(BaseModel):
 
 # ── Live / Fixtures ───────────────────────────────────────────────────────────
 
+
 class FixtureTeamSchema(BaseModel):
     name: str
     logo: Optional[str] = None
@@ -215,6 +217,7 @@ class FixturesResponseSchema(BaseModel):
 
 
 # ── Match detail ──────────────────────────────────────────────────────────────
+
 
 class MatchEventSchema(BaseModel):
     minute: Optional[int] = None
@@ -259,6 +262,7 @@ class MatchAdvancedStatsSchema(BaseModel):
 
 # ── Head-to-head ──────────────────────────────────────────────────────────────
 
+
 class H2HMatchSchema(BaseModel):
     match_date: date
     season_label: str
@@ -270,6 +274,7 @@ class H2HMatchSchema(BaseModel):
 
 
 # ── Team overview ─────────────────────────────────────────────────────────────
+
 
 class TeamSeasonHistoryItem(BaseModel):
     season_id: int

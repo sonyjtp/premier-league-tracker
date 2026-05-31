@@ -25,16 +25,17 @@ Optimal N
 
 import json
 from typing import Any, Optional
+
 import redis
-from pydantic import BaseModel
 from app.config import settings
+from pydantic import BaseModel
 
 # ── TTL constants (seconds) ───────────────────────────────────────────────────
-LIVE_TTL      = 60
-UPCOMING_TTL  = 300
-CURR_TTL      = 3_600
-PLAYER_TTL    = 604_800
-HIST_TTL      = 15_552_000           # 180 days
+LIVE_TTL = 60
+UPCOMING_TTL = 300
+CURR_TTL = 3_600
+PLAYER_TTL = 604_800
+HIST_TTL = 15_552_000  # 180 days
 
 _client: Optional[redis.Redis] = None
 
@@ -48,10 +49,11 @@ def get_redis() -> redis.Redis:
 
 # ── Low-level primitives ──────────────────────────────────────────────────────
 
+
 def _serialize(value: Any) -> Any:
     """Convert Pydantic models / nested structures to JSON-safe dicts."""
     if isinstance(value, BaseModel):
-        return json.loads(value.json())   # .json() handles date → ISO string
+        return json.loads(value.json())  # .json() handles date → ISO string
     if isinstance(value, list):
         return [_serialize(v) for v in value]
     if isinstance(value, dict):
@@ -72,7 +74,7 @@ def get_cached(key: str, sliding_ttl: Optional[int] = None) -> Optional[Any]:
         if raw is None:
             return None
         if sliding_ttl:
-            r.expire(key, sliding_ttl)    # reset the clock on access
+            r.expire(key, sliding_ttl)  # reset the clock on access
         return json.loads(raw)
     except Exception:
         return None
@@ -94,6 +96,7 @@ def delete_cached(key: str) -> None:
 
 
 # ── Cache-aside helper ────────────────────────────────────────────────────────
+
 
 def get_or_fetch(
     key: str,
@@ -119,6 +122,7 @@ def get_or_fetch(
 
 # ── Season-tier helper ────────────────────────────────────────────────────────
 
+
 def season_ttl(season_id: int, current_season_id: int) -> tuple[int, bool]:
     """
     Return (ttl, sliding) for a given season_id.
@@ -141,6 +145,7 @@ def get_current_season_id(db) -> int:
     if cached is not None:
         return int(cached)
     from app.models import Season
+
     season = db.query(Season).order_by(Season.id.desc()).first()
     sid = season.id if season else 0
     set_cached(meta_key, sid, ttl=CURR_TTL)

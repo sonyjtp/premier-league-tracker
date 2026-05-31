@@ -1,8 +1,9 @@
-import time
-import requests
 from datetime import date, timedelta
 from typing import Optional
+
+import requests
 from app.config import settings
+
 
 # Direct api-sports.io uses a single header — no RapidAPI host required
 def _headers() -> dict:
@@ -31,12 +32,15 @@ def get_live_fixtures() -> list:
 def get_upcoming_fixtures(days_ahead: int = 7) -> list:
     today = date.today().isoformat()
     end = (date.today() + timedelta(days=days_ahead)).isoformat()
-    data = _get("fixtures", {
-        "league": settings.PL_LEAGUE_ID,
-        "season": settings.CURRENT_SEASON_YEAR,
-        "from": today,
-        "to": end,
-    })
+    data = _get(
+        "fixtures",
+        {
+            "league": settings.PL_LEAGUE_ID,
+            "season": settings.CURRENT_SEASON_YEAR,
+            "from": today,
+            "to": end,
+        },
+    )
     return data.get("response", [])
 
 
@@ -91,17 +95,24 @@ def get_league_standings(league_id: int, season: int) -> list:
         return []
 
 
-def get_team_recent_fixtures(team_api_id: int, league_id: int, season: int, last: int = 10) -> list:
-    data = _get("fixtures", {
-        "team":   team_api_id,
-        "league": league_id,
-        "season": season,
-        "last":   last,
-    })
+def get_team_recent_fixtures(
+    team_api_id: int, league_id: int, season: int, last: int = 10
+) -> list:
+    data = _get(
+        "fixtures",
+        {
+            "team": team_api_id,
+            "league": league_id,
+            "season": season,
+            "last": last,
+        },
+    )
     return data.get("response", [])
 
 
-def get_league_players(league_id: int = 39, season: int = 2025, team_id: Optional[int] = None) -> list:
+def get_league_players(
+    league_id: int = 39, season: int = 2025, team_id: Optional[int] = None
+) -> list:
     """
     Fetch players in a league for a given season, optionally filtered by team.
     Team-specific queries may return more detailed stats including xG.
@@ -116,16 +127,21 @@ def get_league_players(league_id: int = 39, season: int = 2025, team_id: Optiona
     return data.get("response", [])
 
 
-def get_player_season_stats(player_api_id: int, league_id: int = 39, season: int = 2025) -> dict:
+def get_player_season_stats(
+    player_api_id: int, league_id: int = 39, season: int = 2025
+) -> dict:
     """
     Fetch detailed player season stats from API-Football including xG, xA, shots, etc.
     Returns a dict with stats for the player in the given season/league combination.
     """
-    data = _get("players", {
-        "id": player_api_id,
-        "league": league_id,
-        "season": season,
-    })
+    data = _get(
+        "players",
+        {
+            "id": player_api_id,
+            "league": league_id,
+            "season": season,
+        },
+    )
     resp = data.get("response", [])
     if not resp:
         return {}
@@ -135,8 +151,10 @@ def get_player_season_stats(player_api_id: int, league_id: int = 39, season: int
 
     # Find the matching league/season combination
     for stats in stats_list:
-        if (stats.get("league", {}).get("id") == league_id and
-            stats.get("season") == season):
+        if (
+            stats.get("league", {}).get("id") == league_id
+            and stats.get("season") == season
+        ):
             return stats
 
     return stats_list[0] if stats_list else {}

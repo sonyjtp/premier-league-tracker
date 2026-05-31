@@ -1,10 +1,12 @@
-import pytest
 from datetime import date
+
+import pytest
+from app.database import Base
+from app.models import Competition, GameweekStanding, Match, Season, Team, TeamSeason
+from app.pipeline.ingest import precompute_standings
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.database import Base
-from app.models import Competition, Season, Team, TeamSeason, Match, GameweekStanding
-from app.pipeline.ingest import precompute_standings
+
 
 # Setup an in-memory SQLite database for testing
 @pytest.fixture
@@ -16,6 +18,7 @@ def db_session():
     yield session
     session.close()
 
+
 def test_precompute_standings_ranking_logic(db_session):
     # 1. Seed static competition and season
     comp = Competition(name="English Premier League", code="EPL", type="LEAGUE")
@@ -24,10 +27,10 @@ def test_precompute_standings_ranking_logic(db_session):
     db_session.commit()
 
     # 2. Seed 4 teams
-    team_a = Team(name="Arsenal", short_name="ARS")      # Alpha 1
+    team_a = Team(name="Arsenal", short_name="ARS")  # Alpha 1
     team_b = Team(name="Aston Villa", short_name="AVL")  # Alpha 2
-    team_c = Team(name="Chelsea", short_name="CHE")      # Alpha 3
-    team_d = Team(name="Everton", short_name="EVE")      # Alpha 4
+    team_c = Team(name="Chelsea", short_name="CHE")  # Alpha 3
+    team_d = Team(name="Everton", short_name="EVE")  # Alpha 4
     db_session.add_all([team_a, team_b, team_c, team_d])
     db_session.commit()
 
@@ -49,7 +52,7 @@ def test_precompute_standings_ranking_logic(db_session):
         away_team_id=team_b.id,
         home_goals=3,
         away_goals=1,
-        result="H"
+        result="H",
     )
 
     # Match 2: Chelsea draws with Everton 2-2
@@ -64,7 +67,7 @@ def test_precompute_standings_ranking_logic(db_session):
         away_team_id=team_d.id,
         home_goals=2,
         away_goals=2,
-        result="D"
+        result="D",
     )
 
     db_session.add_all([match_1, match_2])
@@ -74,10 +77,12 @@ def test_precompute_standings_ranking_logic(db_session):
     precompute_standings(db_session, comp)
 
     # 5. Fetch standings and verify rankings
-    standings = db_session.query(GameweekStanding).filter(
-        GameweekStanding.season_id == season.id,
-        GameweekStanding.gameweek == 1
-    ).order_by(GameweekStanding.position).all()
+    standings = (
+        db_session.query(GameweekStanding)
+        .filter(GameweekStanding.season_id == season.id, GameweekStanding.gameweek == 1)
+        .order_by(GameweekStanding.position)
+        .all()
+    )
 
     assert len(standings) == 4
 

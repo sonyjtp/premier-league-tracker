@@ -4,8 +4,9 @@ TheStatsAPI client.
 NOTE: Endpoint paths below are based on common football analytics API conventions.
 Verify them against your specific TheStatsAPI plan documentation and update as needed.
 """
-import requests
 from typing import Optional
+
+import requests
 from app.config import settings
 
 _BASE = settings.STATS_API_HOST.rstrip("/")

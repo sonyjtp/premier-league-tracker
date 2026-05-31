@@ -75,17 +75,17 @@ const CustomSeasonsTooltip = ({ active, payload, label }: any) => {
           <Calendar className="w-3.5 h-3.5 text-indigo-400" />
           <span>Round (GW) {label}</span>
         </div>
-        
+
         {payload.map((p: any) => {
           const seasonLabel = p.name
           const data = p.payload
           const position = p.value
-          
+
           const date = data[`${seasonLabel}_date`]
           const opponent = data[`${seasonLabel}_opponent`]
           const score = data[`${seasonLabel}_score`]
           const result = data[`${seasonLabel}_result`]
-          
+
           let resColor = "text-slate-400"
           if (result === 'W') resColor = "text-emerald-400"
           if (result === 'L') resColor = "text-rose-400"
@@ -102,7 +102,7 @@ const CustomSeasonsTooltip = ({ active, payload, label }: any) => {
                   Pos: {position}
                 </span>
               </div>
-              
+
               {opponent && (
                 <div className="pl-3.5 text-[10px] text-slate-400 space-y-0.5 mt-1 font-medium">
                   <p className="truncate">Opponent: <strong className="text-slate-200">{opponent}</strong></p>
@@ -130,18 +130,18 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
 }) => {
   const { settings } = useSettings()
   const [mode, setMode] = useState<'teams' | 'seasons'>('teams')
-  
+
   // State for MODE: Compare Teams (Single Season)
   const [chartDataTeams, setChartDataTeams] = useState<any[]>([])
   const [teamsList, setTeamsList] = useState<string[]>([])
   const [selectedTeams, setSelectedTeams] = useState<string[]>([])
-  
+
   // State for MODE: Compare Seasons (Single Team)
   const [teamsMetadata, setTeamsMetadata] = useState<Team[]>([])
   const [selectedTeamId, setSelectedTeamId] = useState<number>(0)
   const [selectedSeasons, setSelectedSeasons] = useState<number[]>([])
   const [chartDataSeasons, setChartDataSeasons] = useState<any[]>([])
-  
+
   const [loading, setLoading] = useState<boolean>(false)
 
   // 1. Fetch metadata for Compare Teams (Single Season)
@@ -156,14 +156,14 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
         if (data.length > 0) {
           const keys = Object.keys(data[0]).filter((k) => k !== 'gameweek')
           setTeamsList(keys.sort())
-          
+
           // Default: top 5 teams
           const finalRound = data[data.length - 1]
           const finalStandings = Object.entries(finalRound)
             .filter(([k]) => k !== 'gameweek')
             .map(([name, pos]) => ({ name, pos: Number(pos) }))
             .sort((a, b) => a.pos - b.pos)
-            
+
           const top5 = finalStandings.slice(0, 5).map((item) => item.name)
           setSelectedTeams(top5)
         }
@@ -189,7 +189,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
         }
       })
       .catch((err) => console.error(err))
-      
+
     // Set default seasons to compare (latest 3 seasons)
     if (seasons.length > 0 && selectedSeasons.length === 0) {
       const top3Ids = seasons.slice(0, 3).map(s => s.id)
@@ -319,7 +319,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
 
       {/* Main content split panel */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        
+
         {/* Left checklist panel */}
         <div className="glass-card p-5 rounded-2xl border border-white/5 min-h-[320px] max-h-[520px] flex flex-col lg:col-span-1">
           {mode === 'teams' ? (
@@ -403,7 +403,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
 
         {/* Right chart panel */}
         <div className="glass-card p-6 rounded-2xl border border-white/5 flex flex-col justify-between min-h-[320px] max-h-[520px] lg:col-span-3">
-          
+
           {mode === 'teams' ? (
             /* SINGLE SEASON - TEAMS COMPARE CHART */
             <>
@@ -479,7 +479,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
                         const season = seasons.find(s => s.id === seasonId)
                         const label = season ? season.label : ""
                         const idx = seasons.findIndex(s => s.id === seasonId)
-                        
+
                         return (
                           <Line
                             key={seasonId}

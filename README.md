@@ -10,6 +10,10 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-3+-38b2ac?style=flat-square&logo=tailwind-css)](https://tailwindcss.com)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js)](https://nodejs.org)
 [![Vite](https://img.shields.io/badge/Vite-5+-646cff?style=flat-square&logo=vite)](https://vitejs.dev)
+[![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen?style=flat-square&logo=pytest)](TESTING.md)
+[![Coverage](https://img.shields.io/badge/Coverage-85%25+-brightgreen?style=flat-square)](TESTING.md)
+[![Pre-commit](https://img.shields.io/badge/Pre--commit-Enabled-blue?style=flat-square)](https://pre-commit.com)
+[![Code Style](https://img.shields.io/badge/Code%20Style-Black-000000?style=flat-square)](https://github.com/psf/black)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 A comprehensive Python-React-PostgreSQL analytics platform for visualizing and comparing English Premier League player and team performances with cross-league European data. Track 10 seasons of historical data, live match updates, and advanced statistics from multiple sports data APIs.
@@ -361,6 +365,48 @@ python -m app.pipeline.migrate
 ### Hot Reload
 - Backend: Uvicorn auto-reloads on file changes
 - Frontend: Vite HMR on React/CSS changes
+
+## 🧪 Testing & Code Quality
+
+### Setup Quality Hooks
+```bash
+./setup-hooks.sh
+```
+
+This installs:
+- **Pre-commit hooks**: Auto-format and lint code before commits
+- **Pre-push hooks**: Validate tests and coverage (≥85%) before pushing
+
+### Run Tests Manually
+
+**Backend:**
+```bash
+cd backend
+pytest                                    # Run all tests
+pytest --cov=app --cov-fail-under=85     # With coverage check
+```
+
+**Frontend:**
+```bash
+cd frontend
+npm run test                              # Run all tests
+npm run test:coverage                     # With coverage report
+```
+
+### Coverage Requirements
+- **Minimum**: 85% code coverage
+- **Target**: 90%+
+- Enforced on pre-commit and pre-push
+
+### Code Quality Standards
+- ✅ **Black** – Consistent Python formatting
+- ✅ **isort** – Organized Python imports
+- ✅ **flake8** – Python style & quality checks
+- ✅ **pytest** – 85%+ coverage requirement
+- ✅ **Vitest** – Frontend unit tests
+- ✅ **ESLint** – TypeScript/React best practices
+
+See [TESTING.md](TESTING.md) for comprehensive testing guide.
 
 ## 📝 Commit Message Format
 

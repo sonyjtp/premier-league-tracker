@@ -1,9 +1,20 @@
-from app.database import engine, Base
-from app.models import (
-    Competition, Season, Team, TeamSeason, Player, Match,
-    GameweekStanding, PlayerSeasonSummary, PlayerMatchStat,
-    TeamProfile, PlayerProfile, MatchEvent, MatchLineup,
-    MatchAdvancedStats, PlayerAdvancedStats,
+from app.database import Base, engine
+from app.models import (  # noqa: F401
+    Competition,
+    GameweekStanding,
+    Match,
+    MatchAdvancedStats,
+    MatchEvent,
+    MatchLineup,
+    Player,
+    PlayerAdvancedStats,
+    PlayerMatchStat,
+    PlayerProfile,
+    PlayerSeasonSummary,
+    Season,
+    Team,
+    TeamProfile,
+    TeamSeason,
 )
 
 
