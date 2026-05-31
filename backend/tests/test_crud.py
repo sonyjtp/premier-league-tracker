@@ -1,3 +1,5 @@
+from datetime import date
+
 from app import crud, models
 
 
@@ -544,6 +546,66 @@ class TestTeamProfileCRUD:
         )
         assert profile.country == "Scotland"
         assert profile.founded == 1886  # Unchanged
+
+
+class TestPlayerProfileCRUD:
+    def test_upsert_player_profile_create(self, db):
+        """Test upsert_player_profile creates new profile"""
+        player = models.Player(
+            first_name="John",
+            second_name="Doe",
+            position="MID",
+            current_fpl_id=1,
+        )
+        db.add(player)
+        db.commit()
+
+        profile_data = {
+            "birth_date": date(1990, 5, 15),
+            "nationality": "England",
+            "height": "180",
+        }
+        crud.upsert_player_profile(db, player.id, profile_data)
+
+        profile = (
+            db.query(models.PlayerProfile)
+            .filter(models.PlayerProfile.player_id == player.id)
+            .first()
+        )
+        assert profile is not None
+        assert profile.nationality == "England"
+        assert profile.height == "180"
+
+    def test_upsert_player_profile_update(self, db):
+        """Test upsert_player_profile updates existing profile"""
+        player = models.Player(
+            first_name="John",
+            second_name="Doe",
+            position="MID",
+            current_fpl_id=1,
+        )
+        db.add(player)
+        db.commit()
+
+        # Create initial profile
+        profile_data = {
+            "birth_date": date(1990, 5, 15),
+            "nationality": "England",
+            "height": "180",
+        }
+        crud.upsert_player_profile(db, player.id, profile_data)
+
+        # Update profile
+        new_data = {"nationality": "Scotland"}
+        crud.upsert_player_profile(db, player.id, new_data)
+
+        profile = (
+            db.query(models.PlayerProfile)
+            .filter(models.PlayerProfile.player_id == player.id)
+            .first()
+        )
+        assert profile.nationality == "Scotland"
+        assert profile.height == "180"  # Unchanged
 
 
 class TestLatestGameweekCRUD:

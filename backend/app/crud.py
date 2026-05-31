@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.models import (
@@ -270,9 +270,11 @@ def upsert_team_profile(db: Session, team_id: int, data: Dict[str, Any]) -> None
         for k, v in data.items():
             if hasattr(profile, k):
                 setattr(profile, k, v)
-        profile.updated_at = datetime.utcnow()
+        profile.updated_at = datetime.now(timezone.utc)
     else:
-        profile = TeamProfile(team_id=team_id, updated_at=datetime.utcnow(), **data)
+        profile = TeamProfile(
+            team_id=team_id, updated_at=datetime.now(timezone.utc), **data
+        )
         db.add(profile)
     db.commit()
 
@@ -285,10 +287,10 @@ def upsert_player_profile(db: Session, player_id: int, data: Dict[str, Any]) -> 
         for k, v in data.items():
             if hasattr(profile, k):
                 setattr(profile, k, v)
-        profile.updated_at = datetime.utcnow()
+        profile.updated_at = datetime.now(timezone.utc)
     else:
         profile = PlayerProfile(
-            player_id=player_id, updated_at=datetime.utcnow(), **data
+            player_id=player_id, updated_at=datetime.now(timezone.utc), **data
         )
         db.add(profile)
     db.commit()
@@ -380,11 +382,11 @@ def upsert_match_advanced_stats(
     if existing:
         for k, v in fields.items():
             setattr(existing, k, v)
-        existing.fetched_at = datetime.utcnow()
+        existing.fetched_at = datetime.now(timezone.utc)
     else:
         db.add(
             MatchAdvancedStats(
-                match_id=match_id, fetched_at=datetime.utcnow(), **fields
+                match_id=match_id, fetched_at=datetime.now(timezone.utc), **fields
             )
         )
     db.commit()
@@ -429,13 +431,13 @@ def upsert_player_advanced_stats(
     if existing:
         for k, v in fields.items():
             setattr(existing, k, v)
-        existing.fetched_at = datetime.utcnow()
+        existing.fetched_at = datetime.now(timezone.utc)
     else:
         db.add(
             PlayerAdvancedStats(
                 player_id=player_id,
                 season_id=season_id,
-                fetched_at=datetime.utcnow(),
+                fetched_at=datetime.now(timezone.utc),
                 **fields,
             )
         )
