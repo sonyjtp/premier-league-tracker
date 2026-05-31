@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: pl_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: pl_user
+      POSTGRES_PASSWORD: pl_password
+      POSTGRES_DB: pl_db
+      PGDATA: /var/lib/postgresql/premier-league-tracker-data/data
+    ports:
+      - "5435:5432"
+    volumes:
+      - ./db_data:/var/lib/postgresql/premier-league-tracker-data
+
+  redis:
+    image: redis:7-alpine
+    container_name: pl_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
