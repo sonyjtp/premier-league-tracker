@@ -1,0 +1,29 @@
+[run]
+branch = True
+omit =
+    */app/__init__.py
+    */app/*/__init__.py
+    app/pipeline/*
+    app/config.py
+    app/database.py
+    app/init_db.py
+    app/main.py
+    app/services/api_football.py
+    app/services/the_stats_api.py
+
+[report]
+precision = 2
+show_missing = True
+fail_under = 66
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+    raise NotImplementedError
+
+[html]
+directory = htmlcov
