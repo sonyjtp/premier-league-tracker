@@ -158,3 +158,9 @@ def get_player_season_stats(
             return stats
 
     return stats_list[0] if stats_list else {}
+
+
+def get_fixture_players(fixture_id: int) -> list:
+    """Fetch player stats for a specific fixture, including xG/xA and cards."""
+    data = _get("fixtures/players", {"fixture": fixture_id})
+    return data.get("response", [])

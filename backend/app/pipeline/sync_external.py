@@ -326,15 +326,104 @@ def _parse_api_football_stats(stats: dict) -> dict:
     }
 
 
+def _parse_fixture_player_stats(player_data: dict, player_api_id: int) -> dict:
+    """
+    Extract and aggregate xG/xA from fixture/players endpoint.
+
+    Args:
+        player_data: Dict with 'player' and 'statistics' keys from fixtures/players response
+        player_api_id: The player's API-Football ID to match
+
+    Returns:
+        Dict with xG, xA, shots, etc. or empty dict if not found
+    """
+    player_info = player_data.get("player", {})
+    if player_info.get("id") != player_api_id:
+        return {}
+
+    stats = player_data.get("statistics", [])
+    if not stats:
+        return {}
+
+    stat = stats[0]  # First (and usually only) entry per competition
+    shots = stat.get("shots", {})
+    passes = stat.get("passes", {})
+    games = stat.get("games", {})
+
+    xg = shots.get("expected")
+    xa = passes.get("expected")
+    minutes = games.get("minutes_played", 0)
+
+    xg_90 = (xg * 90) / minutes if xg and minutes > 0 else None
+    xa_90 = (xa * 90) / minutes if xa and minutes > 0 else None
+
+    return {
+        "xg": xg,
+        "xa": xa,
+        "xg_per_90": xg_90,
+        "xa_per_90": xa_90,
+        "shots": shots.get("total"),
+        "shots_on_target": shots.get("on"),
+        "minutes": minutes,
+    }
+
+
+def _aggregate_fixture_player_stats(fixtures: list, player_api_id: int) -> dict:
+    """
+    Aggregate xG/xA stats across all fixtures for a single player.
+    Fetches fixtures/players for each match and sums xG, xA, and minutes.
+    """
+    aggregated = {
+        "xg": 0.0,
+        "xa": 0.0,
+        "minutes": 0,
+        "shots": 0,
+        "shots_on_target": 0,
+    }
+
+    for fixture in fixtures:
+        fixture_id = fixture.get("fixture_id")
+        if not fixture_id:
+            continue
+
+        try:
+            players_data = api_football.get_fixture_players(fixture_id)
+            for player_entry in players_data:
+                stats = _parse_fixture_player_stats(player_entry, player_api_id)
+                if not stats:
+                    continue
+
+                aggregated["xg"] += stats.get("xg") or 0
+                aggregated["xa"] += stats.get("xa") or 0
+                aggregated["minutes"] += stats.get("minutes") or 0
+                aggregated["shots"] += stats.get("shots") or 0
+                aggregated["shots_on_target"] += stats.get("shots_on_target") or 0
+                break
+
+            time.sleep(0.1)
+        except Exception as e:
+            logger.warning(f"Failed to get fixture {fixture_id} stats: {e}")
+            continue
+
+    minutes = aggregated["minutes"]
+    aggregated["xg_per_90"] = (
+        (aggregated["xg"] * 90) / minutes if aggregated["xg"] and minutes > 0 else None
+    )
+    aggregated["xa_per_90"] = (
+        (aggregated["xa"] * 90) / minutes if aggregated["xa"] and minutes > 0 else None
+    )
+
+    return aggregated
+
+
 def sync_player_advanced_stats():
     """
-    Fetch xG/xA stats from API-Football for PL players.
-    Falls back to TheStatsAPI if API-Football data unavailable.
+    Aggregate xG/xA stats from API-Football fixtures for PL players.
+    Sums fixture-level player stats into season totals and per-90 metrics.
     Runs weekly.
     """
     db = SessionLocal()
     try:
-        # Query players with api_football_id (PL players synced from API-Football)
         players = (
             db.query(crud.Player).filter(crud.Player.api_football_id.isnot(None)).all()
         )
@@ -353,24 +442,22 @@ def sync_player_advanced_stats():
                 if existing:
                     continue
 
-                # Try API-Football first (for PL players)
                 season_year = int(s.season.label.split("-")[0])
-                stats = api_football.get_player_season_stats(
-                    p.api_football_id, league_id=39, season=season_year
-                )
-                data = _parse_api_football_stats(stats)
+                fixtures = crud.get_fixtures_for_season(db, 39, season_year)
 
-                # Fallback to TheStatsAPI if available
-                if not data and p.stats_api_id:
-                    data = the_stats_api.get_player_season_analytics(
-                        p.stats_api_id, s.season.label
-                    )
+                if not fixtures:
+                    continue
 
-                if not data:
+                data = _aggregate_fixture_player_stats(fixtures, p.api_football_id)
+
+                if not data or data["minutes"] == 0:
                     continue
 
                 crud.upsert_player_advanced_stats(db, p.id, s.season_id, data)
                 synced += 1
+                logger.info(
+                    f"[sync] {p.name}: {data['xg']:.1f} xG, {data['xa']:.1f} xA"
+                )
                 time.sleep(0.2)
         logger.info(f"[sync] player_advanced_stats: {synced} synced")
     except Exception as e:

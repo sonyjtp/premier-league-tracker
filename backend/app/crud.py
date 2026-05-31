@@ -126,7 +126,7 @@ def get_standings_history(db: Session, season_id: int, competition_code: str = "
     )
 
 
-def get_team_form(db: Session, team_id: int, season_id: int, last_x: int = 5):
+def get_team_form(db: Session, team_id: int, season_id: int, last_x: int = 10):
     rows = (
         db.query(Match, MatchAdvancedStats)
         .outerjoin(MatchAdvancedStats, MatchAdvancedStats.match_id == Match.id)
@@ -390,6 +390,34 @@ def upsert_match_advanced_stats(
             )
         )
     db.commit()
+
+
+def get_fixtures_for_season(
+    db: Session, league_api_id: int, season_year: int
+) -> List[Dict[str, Any]]:
+    """
+    Get all completed fixtures for a specific season and league.
+    Returns list of dicts with 'fixture_id' (api_football_fixture_id) for each match.
+    """
+    season = (
+        db.query(Season)
+        .filter(Season.label == f"{season_year}-{season_year + 1}")
+        .first()
+    )
+    if not season:
+        return []
+
+    matches = (
+        db.query(Match)
+        .filter(
+            Match.season_id == season.id,
+            Match.api_football_fixture_id.isnot(None),
+        )
+        .order_by(Match.match_date.desc())
+        .all()
+    )
+
+    return [{"fixture_id": m.api_football_fixture_id} for m in matches]
 
 
 def get_player_advanced_stats(db: Session, player_id: int) -> List[PlayerAdvancedStats]:

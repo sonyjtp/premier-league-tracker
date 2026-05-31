@@ -31,6 +31,8 @@ interface SeasonSummary {
   yellow_cards: number
   red_cards: number
   fpl_points: number
+  xg?: number
+  xa?: number
 }
 
 interface MatchStat {
@@ -73,6 +75,10 @@ function total(summaries: SeasonSummary[], key: keyof SeasonSummary): number {
   return summaries.reduce((s, x) => s + ((x[key] as number) ?? 0), 0)
 }
 
+function totalAdvanced(stats: AdvancedStats[], key: 'xg' | 'xa'): number {
+  return stats.reduce((s, x) => s + ((x[key] ?? 0) as number), 0)
+}
+
 function PlayerAvatar({ profile, player, color }: { profile: PlayerProfile | null; player: Player; color: string }) {
   return profile?.photo_url ? (
     <img src={profile.photo_url} alt={player.first_name} className="w-20 h-20 rounded-full object-cover border-4 border-white/10 shrink-0" style={{ borderColor: color + '40' }} />
@@ -85,8 +91,15 @@ function PlayerAvatar({ profile, player, color }: { profile: PlayerProfile | nul
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+interface AdvancedStats {
+  season_label: string
+  xg: number | null
+  xa: number | null
+}
+
 export const PlayerPage: React.FC<Props> = ({ playerId, onBack }) => {
   const [players,    setPlayers]    = useState<PlayerDetail[]>([])
+  const [advancedStats, setAdvancedStats] = useState<{ [key: number]: AdvancedStats[] }>({})
   const [loading,    setLoading]    = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
 
@@ -95,6 +108,19 @@ export const PlayerPage: React.FC<Props> = ({ playerId, onBack }) => {
     const res  = await fetch(`http://localhost:8000/api/players/compare?ids=${ids.join(',')}`)
     const data = await res.json()
     setPlayers(Array.isArray(data) ? data : [])
+
+    // Fetch advanced stats for each player
+    const statsMap: { [key: number]: AdvancedStats[] } = {}
+    for (const id of ids) {
+      try {
+        const advRes = await fetch(`http://localhost:8000/api/players/${id}/advanced`)
+        const advData = await advRes.json()
+        statsMap[id] = Array.isArray(advData) ? advData : []
+      } catch {
+        statsMap[id] = []
+      }
+    }
+    setAdvancedStats(statsMap)
     setLoading(false)
   }
 
@@ -197,14 +223,16 @@ export const PlayerPage: React.FC<Props> = ({ playerId, onBack }) => {
             {/* Career totals */}
             <div className="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-white/5">
               {[
-                { label: 'Goals',  value: total(pd.summaries, 'goals') },
-                { label: 'Assists',value: total(pd.summaries, 'assists') },
-                { label: 'CS',     value: total(pd.summaries, 'clean_sheets') },
-                { label: 'Points', value: total(pd.summaries, 'fpl_points') },
-              ].map(({ label, value }) => (
+                { label: 'Goals',  value: total(pd.summaries, 'goals'), format: (v: number) => v },
+                { label: 'xG',     value: advancedStats[pd.player.id] ? totalAdvanced(advancedStats[pd.player.id], 'xg') : 0, format: (v: number) => v.toFixed(2) },
+                { label: 'Assists',value: total(pd.summaries, 'assists'), format: (v: number) => v },
+                { label: 'xA',     value: advancedStats[pd.player.id] ? totalAdvanced(advancedStats[pd.player.id], 'xa') : 0, format: (v: number) => v.toFixed(2) },
+                { label: 'CS',     value: total(pd.summaries, 'clean_sheets'), format: (v: number) => v, hidden: true },
+                { label: 'Points', value: total(pd.summaries, 'fpl_points'), format: (v: number) => v, hidden: true },
+              ].filter(({ hidden }) => !hidden).slice(0, 4).map(({ label, value, format }) => (
                 <div key={label} className="text-center bg-slate-900/40 rounded-xl p-2.5 border border-white/5">
                   <p className="text-[10px] text-slate-500 font-bold uppercase">{label}</p>
-                  <p className="text-lg font-black text-white mt-0.5">{value}</p>
+                  <p className="text-lg font-black text-white mt-0.5">{format ? format(value) : value}</p>
                 </div>
               ))}
             </div>
@@ -256,7 +284,9 @@ export const PlayerPage: React.FC<Props> = ({ playerId, onBack }) => {
                       <React.Fragment key={`header-${Math.random()}`}>
                         <th className="py-3 px-2 text-center">Min</th>
                         <th className="py-3 px-2 text-center">Goals</th>
+                        <th className="py-3 px-2 text-center hidden sm:table-cell">xG</th>
                         <th className="py-3 px-2 text-center">Ast</th>
+                        <th className="py-3 px-2 text-center hidden sm:table-cell">xA</th>
                         <th className="py-3 px-2 text-center hidden sm:table-cell">CS</th>
                         <th className="py-3 px-2 text-center hidden sm:table-cell">YC</th>
                         <th className="py-3 px-2 text-center">FPL</th>
@@ -271,11 +301,14 @@ export const PlayerPage: React.FC<Props> = ({ playerId, onBack }) => {
                       <td className="py-3 px-4 font-semibold text-slate-300 whitespace-nowrap">{season}</td>
                       {players.map((pd) => {
                         const s = pd.summaries.find(x => x.season_label === season)
+                        const adv = advancedStats[pd.player.id]?.find(x => x.season_label === season)
                         return (
                           <React.Fragment key={`${pd.player.id}-${season}`}>
                             <td className="py-3 px-2 text-center tabular-nums text-slate-400">{s ? s.minutes.toLocaleString() : '—'}</td>
                             <td className="py-3 px-2 text-center font-bold text-emerald-400 tabular-nums">{s?.goals || '—'}</td>
+                            <td className="py-3 px-2 text-center tabular-nums hidden sm:table-cell text-slate-400">{adv?.xg ? adv.xg.toFixed(2) : '—'}</td>
                             <td className="py-3 px-2 text-center font-bold text-blue-400 tabular-nums">{s?.assists || '—'}</td>
+                            <td className="py-3 px-2 text-center tabular-nums hidden sm:table-cell text-slate-400">{adv?.xa ? adv.xa.toFixed(2) : '—'}</td>
                             <td className="py-3 px-2 text-center tabular-nums hidden sm:table-cell text-slate-400">{s?.clean_sheets || '—'}</td>
                             <td className="py-3 px-2 text-center tabular-nums hidden sm:table-cell text-amber-400/80">{s?.yellow_cards || '—'}</td>
                             <td className="py-3 px-2 text-center font-black text-indigo-400 tabular-nums">{s?.fpl_points || '—'}</td>
