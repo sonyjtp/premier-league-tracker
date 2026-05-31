@@ -91,6 +91,13 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+          cache: 'pip'
 
-      - name: Set up pre-commit
-        uses: pre-commit/action@v4
+      - name: Install pre-commit
+        run: |
+          pip install pre-commit
+
+      - name: Run pre-commit
+        run: |
+          cd backend
+          pre-commit run --all-files
