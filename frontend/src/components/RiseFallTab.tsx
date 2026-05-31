@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { Calendar, Info } from 'lucide-react'
+import { Calendar, Info, TrendingUp, Check } from 'lucide-react'
+import { useSettings } from '../contexts/SettingsContext'
 
 interface Season {
   id: number
@@ -127,6 +128,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
   selectedSeasonId,
   setSelectedSeasonId,
 }) => {
+  const { settings } = useSettings()
   const [mode, setMode] = useState<'teams' | 'seasons'>('teams')
   
   // State for MODE: Compare Teams (Single Season)
@@ -180,8 +182,10 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
       .then((res) => res.json())
       .then((data) => {
         setTeamsMetadata(data)
-        if (data.length > 0 && !selectedTeamId) {
-          setSelectedTeamId(data[0].id)
+        if (!selectedTeamId) {
+          const defId = settings.defaultTeamInternalId
+          const match = defId ? data.find((t: Team) => t.id === defId) : null
+          setSelectedTeamId(match ? match.id : (data[0]?.id ?? 0))
         }
       })
       .catch((err) => console.error(err))
@@ -231,6 +235,15 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Page header */}
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <TrendingUp className="w-5 h-5 text-indigo-400" />
+          <h2 className="text-2xl font-black text-white">Rise & Fall</h2>
+        </div>
+        <p className="text-sm text-slate-500">Track how clubs moved through the table across a season or across multiple seasons.</p>
+      </div>
+
       {/* Mode Selector Panel */}
       <div className="glass-card p-4 rounded-2xl flex justify-center border border-white/5">
         <div className="flex bg-slate-950 p-1.5 rounded-xl border border-white/5">
@@ -308,7 +321,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* Left checklist panel */}
-        <div className="glass-card p-5 rounded-2xl border border-white/5 h-[500px] flex flex-col lg:col-span-1">
+        <div className="glass-card p-5 rounded-2xl border border-white/5 min-h-[320px] max-h-[520px] flex flex-col lg:col-span-1">
           {mode === 'teams' ? (
             /* Teams Checklist */
             <>
@@ -327,21 +340,19 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
                   return (
                     <label
                       key={team}
+                      onClick={() => handleTeamToggle(team)}
                       className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors text-xs font-semibold ${
                         isChecked ? 'bg-white/5 text-white' : 'text-slate-400 hover:bg-white/5'
                       }`}
                     >
                       <div className="flex items-center gap-2.5">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleTeamToggle(team)}
-                          className="rounded accent-indigo-500 cursor-pointer"
-                        />
+                        <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-600'}`}>
+                          {isChecked && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                        </span>
                         <span>{team}</span>
                       </div>
                       <span
-                        className="w-2.5 h-2.5 rounded-full animate-pulse"
+                        className="w-2.5 h-2.5 rounded-full"
                         style={{ backgroundColor: color }}
                       ></span>
                     </label>
@@ -367,17 +378,15 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
                   return (
                     <label
                       key={s.id}
+                      onClick={() => handleSeasonToggle(s.id)}
                       className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors text-xs font-semibold ${
                         isChecked ? 'bg-white/5 text-white' : 'text-slate-400 hover:bg-white/5'
                       }`}
                     >
                       <div className="flex items-center gap-2.5">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleSeasonToggle(s.id)}
-                          className="rounded accent-indigo-500 cursor-pointer"
-                        />
+                        <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-600'}`}>
+                          {isChecked && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                        </span>
                         <span>{s.label}</span>
                       </div>
                       <span
@@ -393,7 +402,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
         </div>
 
         {/* Right chart panel */}
-        <div className="glass-card p-6 rounded-2xl border border-white/5 flex flex-col justify-between h-[500px] lg:col-span-3">
+        <div className="glass-card p-6 rounded-2xl border border-white/5 flex flex-col justify-between min-h-[320px] max-h-[520px] lg:col-span-3">
           
           {mode === 'teams' ? (
             /* SINGLE SEASON - TEAMS COMPARE CHART */

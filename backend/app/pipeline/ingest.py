@@ -364,12 +364,14 @@ def sync_fpl_players_and_summaries(db: Session, competition: Competition):
                     first_name=first_name,
                     second_name=second_name,
                     position=position,
-                    current_fpl_id=current_fpl_id
+                    current_fpl_id=current_fpl_id,
+                    fpl_team_id=fp.get("team"),
                 )
                 db.add(player)
             else:
                 player.current_fpl_id = current_fpl_id
                 player.position = position
+                player.fpl_team_id = fp.get("team")
                 
             db.flush()
             active_player_ids.append((player.id, current_fpl_id, f"{first_name} {second_name}"))

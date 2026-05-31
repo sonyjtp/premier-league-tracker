@@ -71,9 +71,10 @@ class Player(Base):
     first_name = Column(String, nullable=False)
     second_name = Column(String, nullable=False)
     position = Column(String, nullable=False)
-    current_fpl_id = Column(Integer, nullable=True, unique=True)
+    current_fpl_id  = Column(Integer, nullable=True, unique=True)
+    fpl_team_id     = Column(Integer, nullable=True, index=True)   # FPL team ID (Team.fpl_id)
     api_football_id = Column(Integer, nullable=True, unique=True)
-    stats_api_id = Column(Integer, nullable=True, unique=True)
+    stats_api_id    = Column(Integer, nullable=True, unique=True)
 
     summaries = relationship("PlayerSeasonSummary", back_populates="player")
     match_stats = relationship("PlayerMatchStat", back_populates="player")

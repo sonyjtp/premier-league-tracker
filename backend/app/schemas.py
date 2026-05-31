@@ -83,6 +83,7 @@ class PlayerSchema(BaseModel):
     second_name: str
     position: str
     current_fpl_id: Optional[int] = None
+    fpl_team_id: Optional[int] = None
     api_football_id: Optional[int] = None
 
     class Config:
@@ -150,6 +151,7 @@ class PlayerProfileSchema(BaseModel):
 class PlayerDetailSchema(BaseModel):
     player: PlayerSchema
     profile: Optional[PlayerProfileSchema] = None
+    team_name: Optional[str] = None
     summaries: List[PlayerSeasonSummarySchema]
     recent_stats: List[PlayerMatchStatSchema]
     advanced_stats: Optional[List[PlayerAdvancedStatsSchema]] = None
@@ -265,3 +267,29 @@ class H2HMatchSchema(BaseModel):
     home_goals: int
     away_goals: int
     result: str
+
+
+# ── Team overview ─────────────────────────────────────────────────────────────
+
+class TeamSeasonHistoryItem(BaseModel):
+    season_id: int
+    season_label: str
+    final_position: int
+    points: int
+    played: int
+    wins: int
+    draws: int
+    losses: int
+    goals_for: int
+    goals_against: int
+    goal_difference: int
+
+
+class TeamOverviewResponse(BaseModel):
+    team: TeamSchema
+    profile: Optional[TeamProfileSchema]
+    current_season_id: Optional[int]
+    current_standing: Optional[StandingItemSchema]
+    form_string: str
+    recent_matches: List[TeamFormMatchSchema]
+    season_history: List[TeamSeasonHistoryItem]

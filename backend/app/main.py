@@ -1,17 +1,53 @@
+from contextlib import asynccontextmanager
+from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List, Optional
+
+from apscheduler.schedulers.background import BackgroundScheduler
+
 from app.database import get_db
 from app import crud, schemas
+from app.services import api_football, cache
+from app.services.cache import (
+    get_or_fetch, season_ttl, get_current_season_id,
+    HIST_TTL, CURR_TTL, PLAYER_TTL, LIVE_TTL, UPCOMING_TTL,
+)
+from app.pipeline.sync_external import (
+    sync_live_matches,
+    sync_upcoming_fixtures,
+    sync_player_profiles,
+    sync_match_analytics,
+    sync_player_advanced_stats,
+    LIVE_KEY,
+    UPCOMING_KEY,
+    _fmt_fixture,
+)
+
+scheduler = BackgroundScheduler(timezone="UTC")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Requires API-Football Ultra plan — comment back in when upgraded
+    # scheduler.add_job(sync_live_matches, "interval", seconds=60, id="live", replace_existing=True)
+    scheduler.add_job(sync_upcoming_fixtures,     "interval", minutes=5,        id="upcoming",        replace_existing=True)
+    scheduler.add_job(sync_match_analytics,       "interval", hours=2,          id="match_analytics", replace_existing=True)
+    scheduler.add_job(sync_player_profiles,       "cron",     hour=3,           id="player_profiles", replace_existing=True)
+    scheduler.add_job(sync_player_advanced_stats, "cron",     day_of_week="mon", hour=4, id="player_adv", replace_existing=True)
+    scheduler.start()
+    sync_upcoming_fixtures()
+    yield
+    scheduler.shutdown(wait=False)
+
 
 app = FastAPI(
     title="Premier League Stats & Performance Tracker API",
-    description="Backend API supporting the Premier League Stats platform",
-    version="1.0.0"
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
-# Enable CORS for React frontend (Vite defaults to port 5173)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
@@ -20,415 +56,754 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ── Seasons & teams (tiny, no caching needed) ─────────────────────────────────
+
 @app.get("/api/seasons", response_model=List[schemas.SeasonSchema])
 def read_seasons(db: Session = Depends(get_db)):
     return crud.get_seasons(db)
 
+
 @app.get("/api/teams", response_model=List[schemas.TeamSchema])
 def read_teams(
-    season_id: Optional[int] = Query(None, description="Filter teams by season ID"),
-    db: Session = Depends(get_db)
+    season_id: Optional[int] = Query(None),
+    query: Optional[str] = Query(None, description="Filter teams by name"),
+    db: Session = Depends(get_db),
 ):
-    return crud.get_teams(db, season_id=season_id)
+    teams = crud.get_teams(db, season_id=season_id)
+    if query and query.strip():
+        q = query.strip().lower()
+        teams = [t for t in teams if q in t.name.lower() or q in t.short_name.lower()]
+    return teams
+
+
+# ── Standings ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/standings", response_model=schemas.StandingsResponse)
 def read_standings(
-    season_id: int = Query(..., description="ID of the season"),
-    gameweek: Optional[int] = Query(None, description="Gameweek round number"),
-    db: Session = Depends(get_db)
+    season_id: int = Query(...),
+    gameweek: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
 ):
-    # Retrieve season details to get the label
-    season = db.query(crud.Season).filter(crud.Season.id == season_id).first()
-    if not season:
-        raise HTTPException(status_code=404, detail="Season not found")
-        
-    standings = crud.get_standings(db, season_id=season_id, gameweek=gameweek)
-    
-    # If standings is empty, return latest active or empty structure
-    actual_gw = gameweek
-    if not actual_gw and standings:
-        actual_gw = standings[0].gameweek
-    elif not actual_gw:
-        actual_gw = 0
-        
-    # Map model instances to StandingItemSchema format (joining team info)
-    mapped_standings = []
-    for item in standings:
-        mapped_standings.append(
-            schemas.StandingItemSchema(
-                team=schemas.TeamSchema.from_orm(item.team),
-                gameweek=item.gameweek,
-                points=item.points,
-                played=item.played,
-                wins=item.wins,
-                draws=item.draws,
-                losses=item.losses,
-                goals_for=item.goals_for,
-                goals_against=item.goals_against,
-                goal_difference=item.goal_difference,
-                position=item.position
-            )
+    curr = get_current_season_id(db)
+    ttl, sliding = season_ttl(season_id, curr)
+    gw_label = gameweek or "latest"
+    key = f"standings:{season_id}:{gw_label}"
+
+    def fetch():
+        season = db.query(crud.Season).filter(crud.Season.id == season_id).first()
+        if not season:
+            return None
+        standings = crud.get_standings(db, season_id=season_id, gameweek=gameweek)
+        actual_gw = gameweek or (standings[0].gameweek if standings else 0)
+        return schemas.StandingsResponse(
+            season_label=season.label,
+            gameweek=actual_gw,
+            standings=[
+                schemas.StandingItemSchema(
+                    team=schemas.TeamSchema.from_orm(item.team),
+                    gameweek=item.gameweek,
+                    points=item.points,
+                    played=item.played,
+                    wins=item.wins,
+                    draws=item.draws,
+                    losses=item.losses,
+                    goals_for=item.goals_for,
+                    goals_against=item.goals_against,
+                    goal_difference=item.goal_difference,
+                    position=item.position,
+                )
+                for item in standings
+            ],
         )
-        
-    return schemas.StandingsResponse(
-        season_label=season.label,
-        gameweek=actual_gw,
-        standings=mapped_standings
-    )
+
+    result = get_or_fetch(key, fetch, ttl=ttl, sliding=sliding)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Season not found")
+    return result
+
 
 @app.get("/api/standings/history")
 def read_standings_history(
-    season_id: int = Query(..., description="ID of the season"),
-    db: Session = Depends(get_db)
+    season_id: int = Query(...),
+    db: Session = Depends(get_db),
 ):
-    history_items = crud.get_standings_history(db, season_id)
-    
-    # Structure data by team for the line chart:
-    # { team_name: [ { gameweek: 1, position: 5 }, { gameweek: 2, position: 4 } ] }
-    history_by_team = {}
-    for item in history_items:
-        team_name = item.team.name
-        if team_name not in history_by_team:
-            history_by_team[team_name] = []
-        history_by_team[team_name].append({
-            "gameweek": item.gameweek,
-            "position": item.position,
-            "points": item.points
-        })
-        
-    # Format for easy frontend charting:
-    # A list of dictionaries, one per gameweek:
-    # [ { gameweek: 1, "Arsenal": 1, "Chelsea": 10, ... }, { gameweek: 2, ... } ]
-    # We find the max gameweek
-    max_gw = max([item.gameweek for item in history_items]) if history_items else 0
-    
-    chart_data = []
-    for gw in range(1, max_gw + 1):
-        gw_dict = {"gameweek": gw}
-        # Find positions of all teams for this gameweek
-        for team_name, gw_list in history_by_team.items():
-            # Find the position for this team at gameweek gw
-            match = next((item for item in gw_list if item["gameweek"] == gw), None)
-            if match:
-                gw_dict[team_name] = match["position"]
-        chart_data.append(gw_dict)
-        
-    return chart_data
+    curr = get_current_season_id(db)
+    ttl, sliding = season_ttl(season_id, curr)
+    key = f"standings_history:{season_id}"
+
+    def fetch():
+        items = crud.get_standings_history(db, season_id)
+        history_by_team: dict = {}
+        for item in items:
+            name = item.team.name
+            history_by_team.setdefault(name, []).append(
+                {"gameweek": item.gameweek, "position": item.position, "points": item.points}
+            )
+        max_gw = max((i.gameweek for i in items), default=0)
+        chart_data = []
+        for gw in range(1, max_gw + 1):
+            row: dict = {"gameweek": gw}
+            for name, gw_list in history_by_team.items():
+                match = next((x for x in gw_list if x["gameweek"] == gw), None)
+                if match:
+                    row[name] = match["position"]
+            chart_data.append(row)
+        return chart_data
+
+    return get_or_fetch(key, fetch, ttl=ttl, sliding=sliding)
+
+
+# ── Team form & season compare ────────────────────────────────────────────────
 
 @app.get("/api/teams/{team_id}/form", response_model=schemas.TeamFormResponse)
 def read_team_form(
     team_id: int,
-    season_id: int = Query(..., description="ID of the season"),
-    last_x: int = Query(5, description="Number of recent matches to return"),
-    db: Session = Depends(get_db)
+    season_id: int = Query(...),
+    last_x: int = Query(5),
+    db: Session = Depends(get_db),
 ):
-    team = crud.get_team_by_id(db, team_id)
-    if not team:
+    curr = get_current_season_id(db)
+    ttl, sliding = season_ttl(season_id, curr)
+    key = f"team_form:{team_id}:{season_id}:{last_x}"
+
+    def fetch():
+        team = crud.get_team_by_id(db, team_id)
+        if not team:
+            return None
+        matches_form, form_str = crud.get_team_form(db, team_id, season_id, last_x)
+        return schemas.TeamFormResponse(
+            team=schemas.TeamSchema.from_orm(team),
+            form_string=form_str,
+            matches=[schemas.TeamFormMatchSchema(**m) for m in matches_form],
+        )
+
+    result = get_or_fetch(key, fetch, ttl=ttl, sliding=sliding)
+    if result is None:
         raise HTTPException(status_code=404, detail="Team not found")
-        
-    matches_form, form_str = crud.get_team_form(db, team_id, season_id, last_x)
-    
-    return schemas.TeamFormResponse(
-        team=schemas.TeamSchema.from_orm(team),
-        form_string=form_str,
-        matches=[schemas.TeamFormMatchSchema(**m) for m in matches_form]
-    )
+    return result
 
-@app.get("/api/players", response_model=List[schemas.PlayerSchema])
-def read_players(
-    query: Optional[str] = Query(None, description="Search players by name"),
-    db: Session = Depends(get_db)
-):
-    return crud.get_players(db, search_query=query)
-
-@app.get("/api/players/compare", response_model=List[schemas.PlayerDetailSchema])
-def compare_players(
-    ids: str = Query(..., description="Comma-separated player IDs to compare"),
-    db: Session = Depends(get_db)
-):
-    try:
-        player_ids = [int(pid) for pid in ids.split(",") if pid.strip()]
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid list of player IDs")
-        
-    results = []
-    for pid in player_ids:
-        player = crud.get_player_by_id(db, pid)
-        if not player:
-            continue
-            
-        summaries = crud.get_player_season_summaries(db, pid)
-        recent_stats = crud.get_player_recent_stats(db, pid, limit=10)
-        
-        # Format response lists
-        summary_schemas = []
-        for s in summaries:
-            summary_schemas.append(
-                schemas.PlayerSeasonSummarySchema(
-                    season_label=s.season.label,
-                    minutes=s.minutes,
-                    goals=s.goals,
-                    assists=s.assists,
-                    clean_sheets=s.clean_sheets,
-                    yellow_cards=s.yellow_cards,
-                    red_cards=s.red_cards,
-                    fpl_points=s.fpl_points
-                )
-            )
-            
-        recent_schemas = []
-        for r in recent_stats:
-            # Get opponent name
-            is_home = (r.match.home_team_id == player.summaries[0].player.summaries[0].player_id if player.summaries else True) # fallback
-            # Safe team fetch
-            home_team = db.query(crud.Team).filter(crud.Team.id == r.match.home_team_id).first()
-            away_team = db.query(crud.Team).filter(crud.Team.id == r.match.away_team_id).first()
-            
-            # Check if this player plays in home or away team in this match
-            # For simplicity, we compare their name or lookup.
-            # But we can find the opponent name by checking which team is not their mapped team.
-            # Since FPL player has current team ID, we can get their current team fpl_id.
-            # Let's write a simple query to find the opponent name:
-            # We can check which team is NOT the team the player is associated with.
-            # In crud, we can check their FPL team.
-            opponent_name = "Unknown"
-            if home_team and away_team:
-                # If we don't know the player's team for sure, let's look up PlayerMatchStat's match teams.
-                # If player goals/assists are registered, we can guess. But let's check FPL team ID.
-                # Find TeamSeason for this player's team mapping or just check if home or away has matching player summaries
-                # Let's check which team matches FPL id
-                # For simplicity, we can default:
-                # If home_team has fpl_id matching player's current FPL team, then opponent is away.
-                # Let's do that!
-                if home_team.fpl_id and player.current_fpl_id:
-                    # Actually FPL endpoint bootstrap elements lists their team id
-                    # For simplicity, let's just lookup what team home matches.
-                    pass
-                # A simpler way: we look at FPL player team. But let's compare:
-                # FPL API's element_summary detailed history records has "opponent_team" as FPL ID,
-                # so we can query the team by FPL ID!
-                # Wait, inside sync_fpl_players_and_summaries, we set:
-                # opponent_db_team = db.query(Team).filter(Team.fpl_id == opponent_fpl_id).first()
-                # So we can find the opponent directly from the match!
-                # If the match's home_team is not the opponent, then opponent is home_team.
-                # Let's search the opponent database record.
-                # We can deduce the opponent in ingest.py and store it, or deduce it here:
-                # In ingest, we matched:
-                # home_team_id = player_db_team.id if is_home else opponent_db_team.id
-                # So the player's team is player_db_team.
-                # Thus, the opponent team is:
-                # home_team if player_db_team.id == away_team.id else away_team
-                # Let's do that! We can fetch the player's current team from FPL elements (we saved it on Team fpl_id).
-                # So the player's team FPL ID can be retrieved, or we can just see which team is home vs away.
-                # If the player is on home team, opponent is away team.
-                # To be absolutely sure, we can lookup if the player has summaries for this team.
-                # Let's just find which team in the match is the opponent.
-                # If we don't know, we can check: is home_team the opponent?
-                # In ingest.py we matched:
-                # is_home = h["was_home"]
-                # opponent_fpl_id = h["opponent_team"]
-                # So the opponent team has FPL ID = opponent_fpl_id!
-                # Let's look up Team with FPL ID = opponent_fpl_id or match opponent team.
-                # Since we don't store opponent_fpl_id on PlayerMatchStat, we can check:
-                # Is the opponent home or away?
-                # In our ingest, the match home and away goals were loaded.
-                # Let's find which team in this match is the player's team.
-                # We can query TeamSeason for this player's season.
-                # For now, let's check which team in the match has the player's current team mapping.
-                # We can retrieve the player's current team FPL ID from the bootstrap elements (but we didn't store player team_id in DB, we stored it as current_fpl_id and mapped teams).
-                # Actually, in ingest, we mapped:
-                # player_db_team = db.query(Team).filter(Team.fpl_id == fp["team"]).first()
-                # So if we just retrieve the team of this player from TeamSeason or look at who they played for.
-                # Let's find which team matches the player's current team.
-                # If we query Team where Team.fpl_id matches the team_id of player in FPL (we can query the first summary team, or just match).
-                # Let's write a safe fallback: if home_team.id is not in player's history, etc.
-                # Better: we can check which team in the match is NOT the one the player plays for.
-                # Let's find the player's team by looking at PlayerSeasonSummary for the latest season.
-                # Or simply:
-                # player's team is the one that is NOT the opponent.
-                # Let's find player's team by querying the latest PlayerMatchStat and checking its match.
-                # To be extremely simple and robust:
-                # In FPL API, for a player's match history, they play for their own team.
-                # Let's find the opponent name by comparing the match teams with the player's current team.
-                # Let's fetch the player's current team: we can query the Team table where fpl_id = (we didn't store team_id directly in Player table, but we can query it or find it from summaries).
-                # Let's write a helper to get player's team:
-                pass
-                
-            recent_schemas.append(
-                schemas.PlayerMatchStatSchema(
-                    gameweek=r.match.gameweek or 0,
-                    opponent_name=away_team.name if home_team and home_team.fpl_id == player.current_fpl_id else (home_team.name if home_team else "Unknown"),
-                    minutes=r.minutes,
-                    goals=r.goals,
-                    assists=r.assists,
-                    clean_sheets=r.clean_sheets,
-                    yellow_cards=r.yellow_cards,
-                    red_cards=r.red_cards,
-                    fpl_points=r.fpl_points
-                )
-            )
-            
-        results.append(
-            schemas.PlayerDetailSchema(
-                player=schemas.PlayerSchema.from_orm(player),
-                summaries=summary_schemas,
-                recent_stats=recent_schemas
-            )
-        )
-        
-    return results
-
-@app.get("/api/players/{player_id}", response_model=schemas.PlayerDetailSchema)
-def read_player(player_id: int, db: Session = Depends(get_db)):
-    player = crud.get_player_by_id(db, player_id)
-    if not player:
-        raise HTTPException(status_code=404, detail="Player not found")
-        
-    summaries = crud.get_player_season_summaries(db, player_id)
-    recent_stats = crud.get_player_recent_stats(db, player_id, limit=10)
-    
-    summary_schemas = []
-    for s in summaries:
-        summary_schemas.append(
-            schemas.PlayerSeasonSummarySchema(
-                season_label=s.season.label,
-                minutes=s.minutes,
-                goals=s.goals,
-                assists=s.assists,
-                clean_sheets=s.clean_sheets,
-                yellow_cards=s.yellow_cards,
-                red_cards=s.red_cards,
-                fpl_points=s.fpl_points
-            )
-        )
-        
-    recent_schemas = []
-    for r in recent_stats:
-        home_team = db.query(crud.Team).filter(crud.Team.id == r.match.home_team_id).first()
-        away_team = db.query(crud.Team).filter(crud.Team.id == r.match.away_team_id).first()
-        
-        # Simple opponent resolution:
-        # We can look up the opponent name. If home_team is player's team (which we can check by comparing its fpl_id), opponent is away_team.
-        opponent_name = "Unknown"
-        if home_team and away_team:
-            # We can check which team is not player's team. If we assume the player belongs to the home team in this match when is_home is true,
-            # but we don't have is_home directly stored in PlayerMatchStat.
-            # However, we can check if the player's summaries or FPL id matches.
-            # A bulletproof way: we check if home_team has fpl_id, etc.
-            # If not, let's just default to home_team vs away_team string (e.g. "Arsenal v Chelsea" or just Chelsea if player is Arsenal).
-            # Let's check which team in this match has matches with the player's team.
-            # If the player plays for home_team, opponent is away_team.
-            # How do we know the player's team? In FPL, the bootstrap elements lists the player's current team.
-            # We can query FPL to find their team, but to be simple and self-contained in the DB:
-            # We can see which team in this match is the opponent.
-            # Let's assume the opponent is away_team unless home_team name matches.
-            # Let's write:
-            opponent_name = away_team.name # default
-            
-        recent_schemas.append(
-            schemas.PlayerMatchStatSchema(
-                gameweek=r.match.gameweek or 0,
-                opponent_name=opponent_name,
-                minutes=r.minutes,
-                goals=r.goals,
-                assists=r.assists,
-                clean_sheets=r.clean_sheets,
-                yellow_cards=r.yellow_cards,
-                red_cards=r.red_cards,
-                fpl_points=r.fpl_points
-            )
-        )
-        
-    return schemas.PlayerDetailSchema(
-        player=schemas.PlayerSchema.from_orm(player),
-        summaries=summary_schemas,
-        recent_stats=recent_schemas
-    )
 
 @app.get("/api/teams/{team_id}/seasons-compare")
 def compare_team_seasons(
     team_id: int,
-    seasons: str = Query(..., description="Comma-separated season IDs to compare"),
-    db: Session = Depends(get_db)
+    seasons: str = Query(...),
+    db: Session = Depends(get_db),
 ):
     from sqlalchemy import or_
     try:
-        season_ids = [int(sid) for sid in seasons.split(",") if sid.strip()]
+        season_ids = [int(s) for s in seasons.split(",") if s.strip()]
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid list of season IDs")
+        raise HTTPException(status_code=400, detail="Invalid season IDs")
 
-    # 1. Fetch seasons details to map ID -> label
-    db_seasons = db.query(crud.Season).filter(crud.Season.id.in_(season_ids)).all()
-    season_id_to_label = {s.id: s.label for s in db_seasons}
+    curr = get_current_season_id(db)
+    # Use the most conservative TTL across all requested seasons
+    has_current = any(sid >= curr for sid in season_ids)
+    ttl     = CURR_TTL if has_current else HIST_TTL
+    sliding = not has_current
+    key = f"seasons_compare:{team_id}:{'-'.join(str(s) for s in sorted(season_ids))}"
 
-    # 2. Fetch matches for this team across the selected seasons
-    matches = db.query(crud.Match).filter(
-        crud.Match.season_id.in_(season_ids),
-        or_(crud.Match.home_team_id == team_id, crud.Match.away_team_id == team_id)
-    ).order_by(crud.Match.season_id, crud.Match.match_date).all()
+    def fetch():
+        db_seasons = db.query(crud.Season).filter(crud.Season.id.in_(season_ids)).all()
+        season_label = {s.id: s.label for s in db_seasons}
 
-    # Group matches by season_id and map index -> match details
-    matches_by_season = {}
-    for m in matches:
-        if m.season_id not in matches_by_season:
-            matches_by_season[m.season_id] = []
-        matches_by_season[m.season_id].append(m)
+        matches = (db.query(crud.Match)
+                   .filter(crud.Match.season_id.in_(season_ids),
+                           or_(crud.Match.home_team_id == team_id, crud.Match.away_team_id == team_id))
+                   .order_by(crud.Match.season_id, crud.Match.match_date).all())
 
-    # 3. Fetch standings for this team across the selected seasons
-    standings = db.query(crud.GameweekStanding).filter(
-        crud.GameweekStanding.team_id == team_id,
-        crud.GameweekStanding.season_id.in_(season_ids)
-    ).all()
+        matches_by_season: dict = {}
+        for m in matches:
+            matches_by_season.setdefault(m.season_id, []).append(m)
 
-    # Map (season_id, gameweek) -> standing record
-    standings_map = {}
-    for s in standings:
-        standings_map[(s.season_id, s.gameweek)] = s
+        standings = (db.query(crud.GameweekStanding)
+                     .filter(crud.GameweekStanding.team_id == team_id,
+                             crud.GameweekStanding.season_id.in_(season_ids)).all())
+        standings_map = {(s.season_id, s.gameweek): s for s in standings}
 
-    # 4. Construct flat charting dataset
-    chart_data = []
-    # Standings are for round 1 to 38
-    for gw in range(1, 39):
-        row = {"gameweek": gw}
-        has_data = False
-        
-        for season_id in season_ids:
-            season_label = season_id_to_label.get(season_id)
-            if not season_label:
-                continue
-                
-            # Get standing for this season at gameweek gw
-            standing = standings_map.get((season_id, gw))
-            
-            # Get match details for this season at gameweek gw (which corresponds to index gw-1)
-            season_matches = matches_by_season.get(season_id, [])
-            match = season_matches[gw - 1] if len(season_matches) >= gw else None
-            
-            if standing:
-                row[season_label] = standing.position
-                has_data = True
-                
-                if match:
-                    is_home = (match.home_team_id == team_id)
-                    opponent = match.away_team if is_home else match.home_team
-                    opponent_name = opponent.name if opponent else "Unknown"
-                    
-                    goals_for = match.home_goals if is_home else match.away_goals
-                    goals_against = match.away_goals if is_home else match.home_goals
-                    
-                    if match.result == "D":
-                        res = "D"
-                    elif (match.result == "H" and is_home) or (match.result == "A" and not is_home):
-                        res = "W"
-                    else:
-                        res = "L"
-                        
-                    row[f"{season_label}_date"] = match.match_date.isoformat()
-                    row[f"{season_label}_opponent"] = opponent_name
-                    row[f"{season_label}_score"] = f"{goals_for} - {goals_against}"
-                    row[f"{season_label}_result"] = res
-                    
-        if has_data:
-            chart_data.append(row)
-            
-    return chart_data
+        chart_data = []
+        for gw in range(1, 39):
+            row: dict = {"gameweek": gw}
+            has_data = False
+            for sid in season_ids:
+                lbl = season_label.get(sid)
+                if not lbl:
+                    continue
+                standing = standings_map.get((sid, gw))
+                season_matches = matches_by_season.get(sid, [])
+                match = season_matches[gw - 1] if len(season_matches) >= gw else None
+                if standing:
+                    row[lbl] = standing.position
+                    has_data = True
+                    if match:
+                        is_home = (match.home_team_id == team_id)
+                        opp = match.away_team if is_home else match.home_team
+                        gf = match.home_goals if is_home else match.away_goals
+                        ga = match.away_goals if is_home else match.home_goals
+                        res = "D" if match.result == "D" else (
+                            "W" if (match.result == "H" and is_home) or (match.result == "A" and not is_home)
+                            else "L"
+                        )
+                        row[f"{lbl}_date"]     = match.match_date.isoformat()
+                        row[f"{lbl}_opponent"] = opp.name if opp else "Unknown"
+                        row[f"{lbl}_score"]    = f"{gf} - {ga}"
+                        row[f"{lbl}_result"]   = res
+            if has_data:
+                chart_data.append(row)
+        return chart_data
+
+    return get_or_fetch(key, fetch, ttl=ttl, sliding=sliding)
+
+
+# ── Players ───────────────────────────────────────────────────────────────────
+
+@app.get("/api/players", response_model=List[schemas.PlayerSchema])
+def read_players(
+    query: Optional[str] = Query(None),
+    team_internal_id: Optional[int] = Query(None, description="Filter by internal team DB ID"),
+    db: Session = Depends(get_db),
+):
+    key = f"player_search:{(query or '').strip().lower()}:{team_internal_id or ''}"
+    cached = cache.get_cached(key)
+    if cached is not None:
+        return cached
+    results = crud.get_players(db, search_query=query, team_internal_id=team_internal_id)
+    serialised = [schemas.PlayerSchema.from_orm(p).dict() for p in results]
+    cache.set_cached(key, serialised, ttl=300)
+    return results
+
+
+@app.get("/api/players/compare", response_model=List[schemas.PlayerDetailSchema])
+def compare_players(
+    ids: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    try:
+        player_ids = [int(pid) for pid in ids.split(",") if pid.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid player IDs")
+    return [d for pid in player_ids if (d := _get_player_detail_cached(db, pid))]
+
+
+@app.get("/api/players/{player_id}", response_model=schemas.PlayerDetailSchema)
+def read_player(player_id: int, db: Session = Depends(get_db)):
+    detail = _get_player_detail_cached(db, player_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Player not found")
+    return detail
+
+
+@app.get("/api/players/{player_id}/profile", response_model=schemas.PlayerProfileSchema)
+def get_player_profile_route(player_id: int, db: Session = Depends(get_db)):
+    key = f"player_profile:{player_id}"
+
+    def fetch():
+        profile = db.query(crud.PlayerProfile).filter(crud.PlayerProfile.player_id == player_id).first()
+        return schemas.PlayerProfileSchema.from_orm(profile) if profile else None
+
+    result = get_or_fetch(key, fetch, ttl=PLAYER_TTL, sliding=True)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Profile not yet synced for this player")
+    return result
+
+
+@app.get("/api/players/{player_id}/advanced", response_model=List[schemas.PlayerAdvancedStatsSchema])
+def get_player_advanced(player_id: int, db: Session = Depends(get_db)):
+    key = f"player_advanced:{player_id}"
+
+    def fetch():
+        stats = crud.get_player_advanced_stats(db, player_id)
+        return [
+            schemas.PlayerAdvancedStatsSchema(
+                season_label=s.season.label,
+                xg=s.xg, xa=s.xa, npxg=s.npxg,
+                xg_per_90=s.xg_per_90, xa_per_90=s.xa_per_90,
+                progressive_carries=s.progressive_carries,
+                progressive_passes=s.progressive_passes,
+                progressive_receptions=s.progressive_receptions,
+                shots=s.shots, shots_on_target=s.shots_on_target,
+            )
+            for s in stats
+        ] or None
+
+    return get_or_fetch(key, fetch, ttl=PLAYER_TTL, sliding=True) or []
+
+
+# ── Teams ─────────────────────────────────────────────────────────────────────
+
+@app.get("/api/teams/{team_id}/profile", response_model=schemas.TeamProfileSchema)
+def get_team_profile_route(team_id: int, db: Session = Depends(get_db)):
+    key = f"team_profile:{team_id}"
+
+    def fetch():
+        profile = db.query(crud.TeamProfile).filter(crud.TeamProfile.team_id == team_id).first()
+        return schemas.TeamProfileSchema.from_orm(profile) if profile else None
+
+    result = get_or_fetch(key, fetch, ttl=PLAYER_TTL, sliding=True)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Profile not yet synced for this team")
+    return result
+
+
+@app.get("/api/teams/{team_id}/squad")
+def get_team_squad(team_id: int, db: Session = Depends(get_db)):
+    key = f"squad:{team_id}"
+    cached = cache.get_cached(key, sliding_ttl=PLAYER_TTL)
+    if cached:
+        return cached
+    team = crud.get_team_by_id(db, team_id)
+    if not team or not team.api_football_id:
+        raise HTTPException(status_code=404, detail="Team has no API-Football ID mapped")
+    squad = api_football.get_team_squad(team.api_football_id)
+    result = [
+        {"id": p.get("id"), "name": p.get("name"), "age": p.get("age"),
+         "number": p.get("number"), "position": p.get("position"), "photo": p.get("photo")}
+        for p in squad
+    ]
+    cache.set_cached(key, result, ttl=PLAYER_TTL)
+    return result
+
+
+# ── Live & fixtures ───────────────────────────────────────────────────────────
+
+@app.get("/api/live", response_model=schemas.FixturesResponseSchema)
+def get_live():
+    cached = cache.get_cached(LIVE_KEY)
+    if cached:
+        return cached
+    # Live fixtures require API-Football Ultra plan.
+    # Returns empty until the scheduler job is enabled.
+    return {"fixtures": [], "cached_at": datetime.utcnow().isoformat()}
+
+
+@app.get("/api/fixtures", response_model=schemas.FixturesResponseSchema)
+def get_upcoming_fixtures_route():
+    cached = cache.get_cached(UPCOMING_KEY)
+    if cached:
+        return cached
+    raw = api_football.get_upcoming_fixtures(days_ahead=7)
+    payload = {"fixtures": [_fmt_fixture(f) for f in raw], "cached_at": datetime.utcnow().isoformat()}
+    cache.set_cached(UPCOMING_KEY, payload, ttl=UPCOMING_TTL)
+    return payload
+
+
+# ── Match detail ──────────────────────────────────────────────────────────────
+
+@app.get("/api/fixtures/{fixture_id}/events", response_model=List[schemas.MatchEventSchema])
+def get_fixture_events(fixture_id: int, db: Session = Depends(get_db)):
+    key = f"match_events:{fixture_id}"
+
+    def fetch():
+        stored = crud.get_match_events(db, fixture_id)
+        if stored:
+            return [schemas.MatchEventSchema.from_orm(e).dict() for e in stored]
+        raw = api_football.get_fixture_events(fixture_id)
+        if not raw:
+            return []
+        entries = [
+            {
+                "minute":       ev.get("time", {}).get("elapsed"),
+                "extra_minute": ev.get("time", {}).get("extra"),
+                "event_type":   ev.get("type", ""),
+                "detail":       ev.get("detail"),
+                "team_name":    ev.get("team", {}).get("name"),
+                "player_name":  ev.get("player", {}).get("name"),
+                "assist_name":  ev.get("assist", {}).get("name"),
+                "comments":     ev.get("comments"),
+            }
+            for ev in raw
+        ]
+        crud.store_match_events(db, fixture_id, entries)
+        return entries
+
+    # Events for a completed fixture never change → HIST_TTL, sliding
+    return get_or_fetch(key, fetch, ttl=HIST_TTL, sliding=True) or []
+
+
+@app.get("/api/fixtures/{fixture_id}/lineups", response_model=List[schemas.TeamLineupSchema])
+def get_fixture_lineups(fixture_id: int, db: Session = Depends(get_db)):
+    key = f"match_lineups:{fixture_id}"
+
+    def fetch():
+        stored = crud.get_match_lineups(db, fixture_id)
+        if not stored:
+            raw = api_football.get_fixture_lineups(fixture_id)
+            entries = []
+            for team_data in raw:
+                team_name = team_data.get("team", {}).get("name", "")
+                formation = team_data.get("formation")
+                for p in team_data.get("startXI", []):
+                    pi = p.get("player", {})
+                    entries.append({"team_name": team_name, "formation": formation,
+                                    "player_name": pi.get("name", ""), "player_api_id": pi.get("id"),
+                                    "is_starter": True, "position": pi.get("pos"),
+                                    "grid": pi.get("grid"), "shirt_number": pi.get("number")})
+                for p in team_data.get("substitutes", []):
+                    pi = p.get("player", {})
+                    entries.append({"team_name": team_name, "formation": formation,
+                                    "player_name": pi.get("name", ""), "player_api_id": pi.get("id"),
+                                    "is_starter": False, "position": pi.get("pos"),
+                                    "grid": None, "shirt_number": pi.get("number")})
+            if entries:
+                crud.store_match_lineups(db, fixture_id, entries)
+            stored = crud.get_match_lineups(db, fixture_id)
+
+        teams: dict = {}
+        for row in stored:
+            t = teams.setdefault(row.team_name, {
+                "team_name": row.team_name, "formation": row.formation,
+                "starters": [], "substitutes": [],
+            })
+            player = schemas.LineupPlayerSchema(
+                name=row.player_name, shirt_number=row.shirt_number,
+                position=row.position, grid=row.grid, is_starter=row.is_starter,
+            )
+            (t["starters"] if row.is_starter else t["substitutes"]).append(player.dict())
+        return [v for v in teams.values()]
+
+    return get_or_fetch(key, fetch, ttl=HIST_TTL, sliding=True) or []
+
+
+@app.get("/api/fixtures/{fixture_id}/analytics", response_model=schemas.MatchAdvancedStatsSchema)
+def get_fixture_analytics(fixture_id: int, db: Session = Depends(get_db)):
+    key = f"match_analytics:{fixture_id}"
+
+    def fetch():
+        stats = crud.get_match_advanced_stats(db, fixture_id)
+        return schemas.MatchAdvancedStatsSchema.from_orm(stats).dict() if stats else None
+
+    result = get_or_fetch(key, fetch, ttl=HIST_TTL, sliding=True)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Analytics not yet available for this match")
+    return result
+
+
+# ── Head-to-head ──────────────────────────────────────────────────────────────
+
+@app.get("/api/head2head", response_model=List[schemas.H2HMatchSchema])
+def head_to_head(
+    team_a: int = Query(...),
+    team_b: int = Query(...),
+    limit: int = Query(10),
+    db: Session = Depends(get_db),
+):
+    key = f"h2h:{min(team_a, team_b)}:{max(team_a, team_b)}:{limit}"
+
+    def fetch():
+        matches = crud.get_head_to_head(db, team_a, team_b, limit)
+        results = []
+        for m in matches:
+            season = db.query(crud.Season).filter(crud.Season.id == m.season_id).first()
+            results.append(schemas.H2HMatchSchema(
+                match_date=m.match_date,
+                season_label=season.label if season else "",
+                home_team=m.home_team.name,
+                away_team=m.away_team.name,
+                home_goals=m.home_goals,
+                away_goals=m.away_goals,
+                result=m.result,
+            ).dict())
+        return results
+
+    curr = get_current_season_id(db)
+    # H2H spans all seasons; use CURR_TTL since current season is included
+    return get_or_fetch(key, fetch, ttl=CURR_TTL, sliding=False) or []
+
+
+# ── Private helper ────────────────────────────────────────────────────────────
+
+def _get_player_detail_cached(db: Session, player_id: int):
+    key = f"player_detail:{player_id}"
+
+    def fetch():
+        player = crud.get_player_by_id(db, player_id)
+        if not player:
+            return None
+
+        summaries  = crud.get_player_season_summaries(db, player_id)
+        # Get more than 10 to account for matches with 0 minutes after filtering
+        recent_all = crud.get_player_recent_stats(db, player_id, limit=20)
+        # Filter to only matches where player actually played (minutes > 0)
+        recent = [r for r in recent_all if r.minutes > 0][:10]
+        adv_stats  = crud.get_player_advanced_stats(db, player_id)
+        profile_db = db.query(crud.PlayerProfile).filter(crud.PlayerProfile.player_id == player_id).first()
+
+        summary_schemas = [
+            schemas.PlayerSeasonSummarySchema(
+                season_label=s.season.label,
+                minutes=s.minutes, goals=s.goals, assists=s.assists,
+                clean_sheets=s.clean_sheets, yellow_cards=s.yellow_cards,
+                red_cards=s.red_cards, fpl_points=s.fpl_points,
+            )
+            for s in summaries
+        ]
+
+        recent_schemas = []
+        for r in recent:
+            home_team = db.query(crud.Team).filter(crud.Team.id == r.match.home_team_id).first()
+            away_team = db.query(crud.Team).filter(crud.Team.id == r.match.away_team_id).first()
+            opponent = None
+
+            # Determine opponent based on player's team
+            if player.fpl_team_id and home_team and away_team:
+                if home_team.fpl_id == player.fpl_team_id:
+                    opponent = away_team  # Player is home, opponent is away
+                elif away_team.fpl_id == player.fpl_team_id:
+                    opponent = home_team  # Player is away, opponent is home
+
+            # Fallback if fpl_team_id match fails
+            if not opponent:
+                opponent = away_team
+
+            recent_schemas.append(schemas.PlayerMatchStatSchema(
+                gameweek=r.match.gameweek or 0,
+                opponent_name=opponent.name if opponent else "Unknown",
+                minutes=r.minutes, goals=r.goals, assists=r.assists,
+                clean_sheets=r.clean_sheets, yellow_cards=r.yellow_cards,
+                red_cards=r.red_cards, fpl_points=r.fpl_points,
+            ))
+
+        adv_schemas = [
+            schemas.PlayerAdvancedStatsSchema(
+                season_label=a.season.label,
+                xg=a.xg, xa=a.xa, npxg=a.npxg,
+                xg_per_90=a.xg_per_90, xa_per_90=a.xa_per_90,
+                progressive_carries=a.progressive_carries,
+                progressive_passes=a.progressive_passes,
+                progressive_receptions=a.progressive_receptions,
+                shots=a.shots, shots_on_target=a.shots_on_target,
+            )
+            for a in adv_stats
+        ] or None
+
+        # Get player's current team
+        team_name = None
+        if player.fpl_team_id:
+            team = db.query(crud.Team).filter(crud.Team.fpl_id == player.fpl_team_id).first()
+            team_name = team.name if team else None
+
+        return schemas.PlayerDetailSchema(
+            player=schemas.PlayerSchema.from_orm(player),
+            profile=schemas.PlayerProfileSchema.from_orm(profile_db) if profile_db else None,
+            team_name=team_name,
+            summaries=summary_schemas,
+            recent_stats=recent_schemas,
+            advanced_stats=adv_schemas,
+        )
+
+    # Player data spans seasons; cache for 1 week with sliding expiry
+    return get_or_fetch(key, fetch, ttl=PLAYER_TTL, sliding=True)
+
+
+# ── Top-5 European leagues ────────────────────────────────────────────────────
+
+TOP5_LEAGUES = [
+    {"id": 39,  "name": "Premier League", "country": "England", "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "logo": "https://media.api-sports.io/football/leagues/39.png"},
+    {"id": 140, "name": "La Liga",         "country": "Spain",   "flag": "🇪🇸",        "logo": "https://media.api-sports.io/football/leagues/140.png"},
+    {"id": 135, "name": "Serie A",         "country": "Italy",   "flag": "🇮🇹",        "logo": "https://media.api-sports.io/football/leagues/135.png"},
+    {"id": 78,  "name": "Bundesliga",      "country": "Germany", "flag": "🇩🇪",        "logo": "https://media.api-sports.io/football/leagues/78.png"},
+    {"id": 61,  "name": "Ligue 1",         "country": "France",  "flag": "🇫🇷",        "logo": "https://media.api-sports.io/football/leagues/61.png"},
+]
+
+
+@app.get("/api/leagues")
+def list_leagues():
+    return TOP5_LEAGUES
+
+
+@app.get("/api/leagues/{league_id}/standings")
+def get_league_standings(
+    league_id: int,
+    season: int = Query(..., description="e.g. 2025 for the 2025-26 season"),
+):
+    key = f"league_standings:{league_id}:{season}"
+    cached = cache.get_cached(key)
+    if cached is not None:
+        return cached
+
+    raw = api_football.get_league_standings(league_id, season)
+    result = [
+        {
+            "rank":         entry.get("rank"),
+            "team_api_id":  entry.get("team", {}).get("id"),
+            "team_name":    entry.get("team", {}).get("name"),
+            "team_logo":    entry.get("team", {}).get("logo"),
+            "points":       entry.get("points"),
+            "goals_diff":   entry.get("goalsDiff"),
+            "form":         entry.get("form", ""),
+            "played":       entry.get("all", {}).get("played"),
+            "wins":         entry.get("all", {}).get("win"),
+            "draws":        entry.get("all", {}).get("draw"),
+            "losses":       entry.get("all", {}).get("lose"),
+            "goals_for":    entry.get("all", {}).get("goals", {}).get("for"),
+            "goals_against":entry.get("all", {}).get("goals", {}).get("against"),
+        }
+        for entry in raw
+    ]
+    cache.set_cached(key, result, ttl=CURR_TTL)
+    return result
+
+
+@app.get("/api/external/teams/{team_api_id}/squad")
+def get_external_team_squad(team_api_id: int):
+    key = f"ext_squad:{team_api_id}"
+    cached = cache.get_cached(key, sliding_ttl=PLAYER_TTL)
+    if cached:
+        return cached
+
+    squad = api_football.get_team_squad(team_api_id)
+    result = [
+        {
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "age": p.get("age"),
+            "number": p.get("number"),
+            "position": p.get("position"),
+            "photo": p.get("photo"),
+        }
+        for p in squad
+    ]
+    cache.set_cached(key, result, ttl=PLAYER_TTL)
+    return result
+
+
+@app.get("/api/external/teams/{team_api_id}/fixtures")
+def get_external_team_fixtures(
+    team_api_id: int,
+    league_id: int = Query(...),
+    season: int = Query(...),
+    limit: int = Query(10),
+):
+    key = f"ext_fixtures:{team_api_id}:{league_id}:{season}:{limit}"
+    cached = cache.get_cached(key, sliding_ttl=CURR_TTL)
+    if cached is not None:
+        return cached
+
+    raw = api_football.get_team_recent_fixtures(team_api_id, league_id, season, limit)
+    result = []
+    for f in raw:
+        fixture = f.get("fixture", {})
+        teams   = f.get("teams", {})
+        goals   = f.get("goals", {})
+        result.append({
+            "fixture_id":   fixture.get("id"),
+            "date":         fixture.get("date"),
+            "status_short": fixture.get("status", {}).get("short"),
+            "home_team":    teams.get("home", {}).get("name"),
+            "away_team":    teams.get("away", {}).get("name"),
+            "home_logo":    teams.get("home", {}).get("logo"),
+            "away_logo":    teams.get("away", {}).get("logo"),
+            "home_goals":   goals.get("home"),
+            "away_goals":   goals.get("away"),
+            "home_winner":  teams.get("home", {}).get("winner"),
+        })
+    cache.set_cached(key, result, ttl=CURR_TTL)
+    return result
+
+
+@app.get("/api/teams/lookup")
+def lookup_internal_team(
+    api_football_id: int = Query(..., description="API-Football team ID"),
+    db: Session = Depends(get_db),
+):
+    """Map an API-Football team ID to an internal DB team ID (PL teams only)."""
+    team = db.query(crud.Team).filter(crud.Team.api_football_id == api_football_id).first()
+    return {"internal_team_id": team.id if team else None}
+
+
+# ── Team overview ─────────────────────────────────────────────────────────────
+
+@app.get("/api/teams/{team_id}/overview", response_model=schemas.TeamOverviewResponse)
+def get_team_overview(
+    team_id: int,
+    season_id: Optional[int] = Query(None, description="Season to show standings for; defaults to latest"),
+    db: Session = Depends(get_db),
+):
+    team = crud.get_team_by_id(db, team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    curr = get_current_season_id(db)
+    sid  = season_id or curr
+    ttl, sliding = season_ttl(sid, curr)
+    key = f"team_overview:{team_id}:{sid}"
+
+    def fetch():
+        # Profile
+        profile_db = db.query(crud.TeamProfile).filter(crud.TeamProfile.team_id == team_id).first()
+
+        # Current standing for the chosen season
+        standings = crud.get_standings(db, season_id=sid)
+        standing  = next((s for s in standings if s.team_id == team_id), None)
+
+        standing_schema = None
+        if standing:
+            standing_schema = schemas.StandingItemSchema(
+                team=schemas.TeamSchema.from_orm(team),
+                gameweek=standing.gameweek,
+                points=standing.points,
+                played=standing.played,
+                wins=standing.wins,
+                draws=standing.draws,
+                losses=standing.losses,
+                goals_for=standing.goals_for,
+                goals_against=standing.goals_against,
+                goal_difference=standing.goal_difference,
+                position=standing.position,
+            )
+
+        # Recent form
+        form_matches, form_string = crud.get_team_form(db, team_id, sid, last_x=10)
+
+        # Season history
+        history_raw = crud.get_team_season_history(db, team_id)
+        history = [schemas.TeamSeasonHistoryItem(**h) for h in history_raw]
+
+        return schemas.TeamOverviewResponse(
+            team=schemas.TeamSchema.from_orm(team),
+            profile=schemas.TeamProfileSchema.from_orm(profile_db) if profile_db else None,
+            current_season_id=sid,
+            current_standing=standing_schema,
+            form_string=form_string,
+            recent_matches=[schemas.TeamFormMatchSchema(**m) for m in form_matches],
+            season_history=history,
+        )
+
+    result = get_or_fetch(key, fetch, ttl=ttl, sliding=sliding)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return result
+
+
+# ── Admin: manual sync triggers ───────────────────────────────────────────────
+# Accessible at /docs — fire these to populate data on demand.
+
+@app.post("/api/admin/sync/upcoming", tags=["admin"])
+def trigger_sync_upcoming():
+    """Fetch upcoming PL fixtures from API-Football and cache them."""
+    sync_upcoming_fixtures()
+    return {"status": "ok", "job": "upcoming_fixtures"}
+
+@app.post("/api/admin/sync/live", tags=["admin"])
+def trigger_sync_live():
+    """Fetch live PL scores from API-Football and cache them."""
+    sync_live_matches()
+    return {"status": "ok", "job": "live_matches"}
+
+@app.post("/api/admin/sync/match-analytics", tags=["admin"])
+def trigger_sync_match_analytics():
+    """Fetch xG/possession from TheStatsAPI for recently completed matches."""
+    sync_match_analytics()
+    return {"status": "ok", "job": "match_analytics"}
+
+@app.post("/api/admin/sync/player-profiles", tags=["admin"])
+def trigger_sync_player_profiles():
+    """Fetch player photos/nationality from API-Football for unmapped players."""
+    sync_player_profiles()
+    return {"status": "ok", "job": "player_profiles"}
+
+@app.post("/api/admin/sync/player-advanced", tags=["admin"])
+def trigger_sync_player_advanced():
+    """Fetch xG/xA/progressive stats from TheStatsAPI for all mapped players."""
+    sync_player_advanced_stats()
+    return {"status": "ok", "job": "player_advanced_stats"}

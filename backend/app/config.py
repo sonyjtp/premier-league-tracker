@@ -1,6 +1,5 @@
 import os
 
-# Load .env if python-dotenv is installed; silently skip otherwise
 try:
     from dotenv import load_dotenv
     load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -16,15 +15,15 @@ class Settings(BaseSettings):
     )
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
 
+    # Direct api-sports.io — single header auth, no RapidAPI host needed
     API_FOOTBALL_KEY: str = os.getenv("API_FOOTBALL_KEY", "")
-    API_FOOTBALL_HOST: str = os.getenv("API_FOOTBALL_HOST", "api-football-v1.p.rapidapi.com")
+    API_FOOTBALL_BASE: str = "https://v3.football.api-sports.io"
 
-    # NOTE: verify endpoint paths against your TheStatsAPI plan documentation
     STATS_API_KEY: str = os.getenv("STATS_API_KEY", "")
     STATS_API_HOST: str = os.getenv("STATS_API_HOST", "https://api.thestatsapi.com")
 
     PL_LEAGUE_ID: int = int(os.getenv("PL_LEAGUE_ID", "39"))
-    CURRENT_SEASON_YEAR: int = int(os.getenv("CURRENT_SEASON_YEAR", "2024"))
+    CURRENT_SEASON_YEAR: int = int(os.getenv("CURRENT_SEASON_YEAR", "2025"))
 
     API_PREFIX: str = "/api"
     PROJECT_NAME: str = "Premier League Stats & Performance Tracker"
