@@ -394,9 +394,9 @@ npm run test:coverage                     # With coverage report
 ```
 
 ### Coverage Requirements
-- **Current**: 66.61% (core modules + CRUD operations)
-- **Threshold**: 66% minimum (defined in `backend/.coveragerc`)
-- **Target**: 75%+ (incremental improvement with new code)
+- **Current**: 84.96% (core modules + CRUD operations)
+- **Threshold**: 80% minimum (defined in `backend/.coveragerc`)
+- **Target**: 85%+ (incremental improvement with new code)
 - Enforced on every commit and push
 
 **Coverage by Module:**
