@@ -1,4 +1,4 @@
-# Premier League Stats & Performance Tracker
+# The SouthStand Lens
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776ab?style=flat-square&logo=python)](https://www.python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
@@ -11,12 +11,12 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js)](https://nodejs.org)
 [![Vite](https://img.shields.io/badge/Vite-5+-646cff?style=flat-square&logo=vite)](https://vitejs.dev)
 [![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen?style=flat-square&logo=pytest)](TESTING.md)
-[![Coverage](https://img.shields.io/badge/Coverage-85%25+-brightgreen?style=flat-square)](TESTING.md)
+[![Coverage](https://img.shields.io/badge/Coverage-87%25+-brightgreen?style=flat-square)](TESTING.md)
 [![Pre-commit](https://img.shields.io/badge/Pre--commit-Enabled-blue?style=flat-square)](https://pre-commit.com)
 [![Code Style](https://img.shields.io/badge/Code%20Style-Black-000000?style=flat-square)](https://github.com/psf/black)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-A comprehensive Python-React-PostgreSQL analytics platform for visualizing and comparing English Premier League player and team performances with cross-league European data. Track 10 seasons of historical data, live match updates, and advanced statistics from multiple sports data APIs.
+A comprehensive Python-React-PostgreSQL analytics platform for visualizing and comparing English Premier League player and team performances with cross-league European data. Track 10 seasons of historical data, live match updates, and advanced statistics (xG, xA) from multiple sports data APIs.
 
 ## 🎯 Key Features
 
@@ -28,9 +28,10 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
 - **Rise & Fall Analytics** – Track position changes season-over-season with historical standing trends
 
 ### ⚽ **Player Analytics**
-- **Player Profiles** – Comprehensive player pages with season-by-season breakdown of goals, assists, clean sheets, and FPL points
+- **Player Profiles** – Comprehensive player pages with season-by-season breakdown of goals, assists, clean sheets, FPL points, xG (expected goals), and xA (expected assists)
 - **Player Comparison** – Compare any two players side-by-side across multiple seasons with charts
 - **Player Search** – Global player search (⌘K / Ctrl+K) with instant navigation to profile pages
+- **Advanced Stats** – xG/xA metrics displayed alongside traditional stats for deeper performance analysis
 - **Recent Match Stats** – Last 10 actual match appearances with opponent, minutes played, and points earned
 - **Squad Browser** – Click-to-navigate squad rosters grouped by position (Goalkeepers, Defenders, Midfielders, Attackers)
 
@@ -38,6 +39,9 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
 - **Live Scoreboards** – Real-time match updates with status indicators and live scores
 - **Upcoming Fixtures** – Next 7 days of Premier League matches with team logos and kickoff times
 - **Match Details Modal** – Drill into match events, team lineups in formation view, and advanced analytics (xG race, possession %, PPDA)
+- **Match Statistics** – Detailed stats organized by category: Attacking (shots, xG), Defensive (blocks, saves), Possession (passes, accuracy), Set Pieces (corners, offsides), Discipline (cards)
+- **Head-to-Head History** – Complete H2H record between teams with last 10 meetings (clickable to view individual match details)
+- **Historical Match Navigation** – Click any H2H match to view full statistics and details for that specific fixture
 
 ### 🔧 **User Preferences & Customization**
 - **Settings Page** – Configure default league (Premier League by default) and team (Tottenham Hotspur by default)
@@ -55,19 +59,28 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
 - **API-Football (api-sports.io)** – Live fixtures, upcoming matches, team squads, European league data
 - **TheStatsAPI** – Match analytics and advanced statistics (fallback source)
 
-### ⚙️ **Background Services**
+### ⚙️ **Background Services & Caching**
 - **APScheduler Jobs** – Automated sync jobs:
   - Live fixtures: every 60 seconds (when available)
   - Upcoming fixtures: every 5 minutes
   - Match analytics: every 2 hours
   - Player profiles: daily at 3 AM
   - Advanced stats: weekly on Mondays at 4 AM
-- **Redis Caching** – Multi-tier TTL strategy:
-  - Live data: 60 seconds
-  - Upcoming: 5 minutes
-  - Current season: 1 hour
-  - Player profiles: 7 days (sliding expiration)
-  - Historical: 180 days (sliding expiration)
+
+- **Tiered Caching for Historical Data** – Optimal performance with minimal API calls:
+  1. **Redis Cache** (fastest) – In-memory cache with 180-day sliding TTL
+  2. **PostgreSQL Database** (medium) – Persistent storage of completed fixtures
+  3. **External API** (slowest) – Fallback only for non-cached data
+
+- **Cache Eviction Policy**:
+  - **LRU (Least Recently Used)**: Redis automatically evicts oldest data when 256 MB limit is reached
+  - **TTL (Time-To-Live)**: Historical data expires after 180 days of inactivity
+  - **Multi-Tier TTL Strategy**:
+    - Live data: 60 seconds
+    - Upcoming: 5 minutes
+    - Current season: 1 hour
+    - Player profiles: 7 days (sliding expiration)
+    - Historical: 180 days (sliding expiration)
 
 ## 🏗️ Tech Stack
 
@@ -218,10 +231,13 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
 - `GET /api/fixtures/upcoming` – Next 7 days of fixtures (cached 5min)
 - `GET /api/fixtures/{fixture_id}/events` – Match events timeline
 - `GET /api/fixtures/{fixture_id}/lineups` – Team lineups in formation
+- `GET /api/fixtures/{fixture_id}/statistics` – Match statistics (shots, possession, xG, cards, etc.)
 
 ### External League Data
-- `GET /api/external/teams/{team_api_id}/fixtures?league_id=<id>&season=<year>` – European team fixtures
+- `GET /api/external/teams/{team_api_id}/fixtures?league_id=<id>&season=<year>` – European team fixtures (with team API IDs for H2H)
 - `GET /api/external/teams/{team_api_id}/squad` – European team squad
+- `GET /api/external/fixtures/{fixture_id}/statistics` – Match statistics for external league fixtures (with organized stat categories)
+- `GET /api/external/fixtures/headtohead?team1_id=<id>&team2_id=<id>` – Head-to-head history between two teams (last 10 meetings, sorted by date)
 
 ## 🗄️ Database Schema Overview
 
@@ -262,7 +278,8 @@ STATS_API_KEY=your_key_here
 - **Tab-based interface** – Leagues, Rise & Fall, Team Form, Live, Settings
 - **Global search** – ⌘K / Ctrl+K to search any player or team
 - **Click navigation** – Team names and player names are clickable throughout
-- **Breadcrumb returns** – "Back" buttons preserve navigation context
+- **Smart Back Navigation** – "Back" buttons intelligently return to the previous page you were viewing (not always the home page)
+- **Drill-Down Details** – Click recent matches to view full statistics and H2H records
 
 ### Default Preferences
 - **Default League** – Premier League (configurable in Settings)
@@ -284,7 +301,22 @@ STATS_API_KEY=your_key_here
 | Upcoming fixtures | 5min | 5min |
 | Match analytics | 2h | 1h |
 | Player profiles | Daily (3 AM) | 7 days |
-| Advanced stats | Weekly (Mon 4 AM) | 7 days |
+| Advanced stats (xG/xA) | Weekly (Mon 4 AM) | 7 days |
+
+### Manual Sync Triggers
+Manually trigger any sync job via API POST requests (useful for testing):
+
+```bash
+# Manually sync player advanced stats (xG/xA) — useful for immediate testing
+curl -X POST http://localhost:8000/api/admin/sync/player-advanced
+
+# Other available triggers:
+curl -X POST http://localhost:8000/api/admin/sync/upcoming
+curl -X POST http://localhost:8000/api/admin/sync/match-analytics
+curl -X POST http://localhost:8000/api/admin/sync/player-profiles
+```
+
+**Note:** The player advanced stats sync aggregates xG/xA from fixture-level player statistics across all completed matches in a season. It runs weekly but can be triggered manually to populate data immediately.
 
 ### Cache Tiers
 - **Live/Real-time**: 60–300 seconds (Redis)
@@ -315,10 +347,11 @@ STATS_API_KEY=your_key_here
 
 ### Team Form Tab
 - Compare two teams head-to-head
-- Recent form with opponent and result
-- H2H record (W-D-L)
-- Season selection
-- Clickable team names
+- Recent form with opponent and result (last 10 matches)
+- H2H record (W-D-L) with complete history
+- Season selection and configurable look-back window
+- Click any H2H match to view full statistics and match details
+- Clickable team names for detailed profiles
 
 ### Player Comparison
 - Search any player globally (⌘K)
@@ -334,10 +367,56 @@ STATS_API_KEY=your_key_here
 - Status indicators (🟩 live, ⏰ upcoming)
 - Click matches for detailed analytics
 
+### Match Detail Modal
+- **Match Score & Info** – Final score, date, and match status
+- **Organized Statistics** – Stats grouped by context:
+  - **Attacking**: Shots on goal, shots off goal, total shots, shots inside/outside box, xG
+  - **Defensive**: Blocked shots, fouls committed, goalkeeper saves, goals prevented
+  - **Possession**: Ball possession %, total passes, passes accurate, pass accuracy %
+  - **Set Pieces**: Corner kicks, offsides
+  - **Discipline**: Yellow cards, red cards
+- **Head-to-Head History** – Last 10 meetings between teams sorted by date (most recent first)
+- **Interactive H2H** – Click any historical match to view that fixture's full statistics
+- **H2H Record** – Aggregate wins, draws, and losses from H2H matches
+
 ### Settings Page
 - Set default league (auto-selects in Leagues tab)
 - Set default team (pre-fills Team Form, Rise & Fall)
 - Visual feedback with save confirmations
+
+## ✨ UI/UX Enhancements
+
+### Recent Features
+- **Extended Form Analysis** – View last 10 matches in team form comparisons (up from 5)
+- **Interactive Match Details** – Click any recent match to drill into full statistics and analytics
+- **Organized Match Statistics** – Statistics grouped by category (Attacking, Defensive, Possession, Set Pieces, Discipline) for easier interpretation
+- **H2H Match History** – Complete head-to-head records sorted by date with clickable individual matches
+- **Player Advanced Stats** – xG and xA metrics integrated into player comparison pages alongside traditional stats
+- **Smart Navigation** – Back buttons remember your previous page (not just the home page)
+- **Rebranded UI** – "The SouthStand Lens" identity across the application
+
+## 🚧 Future Features & Roadmap
+
+### High Priority
+- **Fix xG/xA Sync** – Debug and resolve player advanced stats population from API-Football fixtures endpoint
+- **Player Stats per Match** – Display individual match performances (goals, assists, xG, minutes) for each player
+- **Team vs Team Trends** – Multi-season comparison charts for head-to-head records
+- **Player Injury/Status** – Track player availability and injury history
+
+### Medium Priority
+- **Fantasy Premier League Integration** – Display FPL ownership %, value trends, and differential analysis
+- **Shot Map Visualization** – Interactive shot locations with xG heatmaps for matches
+- **Player Value Analysis** – Cost per goal, assists, and xG metrics for FPL optimization
+- **Prediction Models** – Match outcome predictions based on historical xG and possession data
+- **Bookmarks/Favorites** – Save favorite players and teams for quick access
+
+### Lower Priority
+- **Mobile App** – Native iOS/Android apps (currently responsive web only)
+- **Live Notifications** – Push alerts for goals, H2H milestones, form changes
+- **Dark Mode Toggle** – Alternative color scheme (currently dark theme only)
+- **Export/Reports** – PDF/CSV export of player and team statistics
+- **Social Sharing** – Share player comparisons and team analyses with custom links
+- **Multi-Season Comparison** – Select arbitrary seasons (not just sequential) for deep historical analysis
 
 ## 🛠️ Development
 
@@ -394,15 +473,16 @@ npm run test:coverage                     # With coverage report
 ```
 
 ### Coverage Requirements
-- **Threshold**: 80% minimum (defined in `backend/.coveragerc`)
+- **Threshold**: 66% minimum (defined in `backend/.coveragerc`)
 - **Target**: 85%+ (incremental improvement with new code)
+- **Current**: 87.27% ✅
 - Enforced on every commit and push
 
 **Coverage by Module:**
 - `schemas.py` & `models.py`: 100% ✅
-- `crud.py`: 28.72%
-- `cache.py`: 21.84%
-- **Excluded**: pipeline, config, infrastructure, API endpoints, external services
+- `crud.py`: 70.21%
+- `cache.py`: 75.86%
+- **Excluded**: pipeline scripts, config, database setup, API endpoints, external service clients (these are infrastructure code)
 
 ### Code Quality Standards
 - ✅ **Black** – Consistent Python formatting

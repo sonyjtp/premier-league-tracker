@@ -26,7 +26,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onSearc
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-              Premier League Performance Platform
+              The SouthStand Lens
             </h1>
             <p className="text-xs text-slate-500">Top-5 European Leagues · 10-Season Analytics</p>
           </div>

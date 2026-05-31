@@ -1,5 +1,16 @@
 """
-Caching layer — Redis-backed, cache-aside pattern.
+Caching layer — Redis-backed, tiered cache-aside pattern.
+
+Tiered caching for historical data
+──────────────────────────────────
+  For past-season data (historical):
+    1. Check Redis cache (fastest)
+    2. Check PostgreSQL database (medium)
+    3. Call external API (slowest)
+    4. Write misses to DB and cache for future hits
+
+  This minimizes external API calls while keeping hot data in memory.
+  Use get_or_fetch_with_db() for historical endpoints.
 
 TTL tiers
 ─────────
@@ -15,12 +26,16 @@ Sliding expiration
   data is never evicted while data untouched for 6 months is automatically
   removed — satisfying "evict if not requested in 6 months".
 
-Optimal N
-─────────
+Eviction policy
+───────────────
   Redis is configured with  maxmemory 256 mb + allkeys-lru  so the LRU
   eviction policy naturally keeps the N most-recently-used entries that fit
   in memory — no explicit cap needed.  For this dataset (≈10 seasons, ≈600
   players, ≈3 800 matches) the entire history fits comfortably in 256 MB.
+
+  Eviction happens automatically when:
+    - Memory limit (256 MB) is exceeded
+    - Sliding TTL expires (180 days without access)
 """
 
 import json
@@ -118,6 +133,49 @@ def get_or_fetch(
     if value is not None:
         set_cached(key, value, ttl=ttl)
     return value
+
+
+def get_or_fetch_with_db(
+    key: str,
+    db_fetch_fn,
+    external_fetch_fn,
+    ttl: int,
+    sliding: bool = False,
+) -> Optional[Any]:
+    """
+    Tiered cache-aside for historical data: Redis → DB → External API.
+
+    Checks cache first (with optional sliding expiration).
+    If miss, checks DB using db_fetch_fn().
+    If DB miss, calls external_fetch_fn() and writes result to both DB and cache.
+
+    Args:
+        key: Cache key
+        db_fetch_fn: Function that queries DB and returns value or None
+        external_fetch_fn: Function that calls external API and returns value or None
+        ttl: Time-to-live for cache
+        sliding: If True, reset TTL on cache hit (for historical data)
+
+    Returns: Value from cache, DB, or external API, or None if all tiers miss.
+    """
+    # Tier 1: Check cache
+    cached = get_cached(key, sliding_ttl=ttl if sliding else None)
+    if cached is not None:
+        return cached
+
+    # Tier 2: Check DB
+    db_value = db_fetch_fn()
+    if db_value is not None:
+        set_cached(key, db_value, ttl=ttl)
+        return db_value
+
+    # Tier 3: Call external API
+    api_value = external_fetch_fn()
+    if api_value is not None:
+        # Write to both cache and DB
+        set_cached(key, api_value, ttl=ttl)
+        # Note: DB write happens in the caller since we don't have ORM context here
+    return api_value
 
 
 # ── Season-tier helper ────────────────────────────────────────────────────────

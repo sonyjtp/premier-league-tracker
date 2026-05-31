@@ -23,6 +23,7 @@ from app.services.cache import (
     UPCOMING_TTL,
     get_current_season_id,
     get_or_fetch,
+    get_or_fetch_with_db,
     season_ttl,
 )
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -122,7 +123,7 @@ def read_standings(
     gw_label = gameweek or "latest"
     key = f"standings:{season_id}:{gw_label}"
 
-    def fetch():
+    def build_response():
         season = db.query(crud.Season).filter(crud.Season.id == season_id).first()
         if not season:
             return None
@@ -149,7 +150,18 @@ def read_standings(
             ],
         )
 
-    result = get_or_fetch(key, fetch, ttl=ttl, sliding=sliding)
+    # For historical seasons: Cache → DB → (no external API, DB is source)
+    # For current season: just use cache-aside (data changes weekly)
+    if season_id < curr:
+        result = get_or_fetch_with_db(
+            key,
+            db_fetch_fn=build_response,
+            external_fetch_fn=lambda: None,  # Historical data from DB only
+            ttl=ttl,
+            sliding=sliding,
+        )
+    else:
+        result = get_or_fetch(key, build_response, ttl=ttl, sliding=sliding)
     if result is None:
         raise HTTPException(status_code=404, detail="Season not found")
     return result
@@ -197,14 +209,14 @@ def read_standings_history(
 def read_team_form(
     team_id: int,
     season_id: int = Query(...),
-    last_x: int = Query(5),
+    last_x: int = Query(10),
     db: Session = Depends(get_db),
 ):
     curr = get_current_season_id(db)
     ttl, sliding = season_ttl(season_id, curr)
     key = f"team_form:{team_id}:{season_id}:{last_x}"
 
-    def fetch():
+    def build_form_response():
         team = crud.get_team_by_id(db, team_id)
         if not team:
             return None
@@ -215,7 +227,18 @@ def read_team_form(
             matches=[schemas.TeamFormMatchSchema(**m) for m in matches_form],
         )
 
-    result = get_or_fetch(key, fetch, ttl=ttl, sliding=sliding)
+    # For historical seasons: Cache → DB → (no external API, DB is source)
+    if season_id < curr:
+        result = get_or_fetch_with_db(
+            key,
+            db_fetch_fn=build_form_response,
+            external_fetch_fn=lambda: None,
+            ttl=ttl,
+            sliding=sliding,
+        )
+    else:
+        result = get_or_fetch(key, build_form_response, ttl=ttl, sliding=sliding)
+
     if result is None:
         raise HTTPException(status_code=404, detail="Team not found")
     return result
@@ -899,6 +922,8 @@ def get_external_team_fixtures(
                 "status_short": fixture.get("status", {}).get("short"),
                 "home_team": teams.get("home", {}).get("name"),
                 "away_team": teams.get("away", {}).get("name"),
+                "home_team_api_id": teams.get("home", {}).get("id"),
+                "away_team_api_id": teams.get("away", {}).get("id"),
                 "home_logo": teams.get("home", {}).get("logo"),
                 "away_logo": teams.get("away", {}).get("logo"),
                 "home_goals": goals.get("home"),
@@ -906,6 +931,140 @@ def get_external_team_fixtures(
                 "home_winner": teams.get("home", {}).get("winner"),
             }
         )
+    cache.set_cached(key, result, ttl=CURR_TTL)
+    return result
+
+
+@app.get("/api/external/fixtures/{fixture_id}/statistics")
+def get_fixture_stats(fixture_id: int):
+    key = f"ext_fixture_stats:{fixture_id}"
+    cached = cache.get_cached(key, sliding_ttl=CURR_TTL)
+    if cached is not None:
+        return cached
+    raw = api_football.get_fixture_statistics(fixture_id)
+    result = []
+    for idx, team_stats in enumerate(raw):
+        team_key = "home" if idx == 0 else "away"
+        for stat in team_stats.get("statistics", []):
+            result.append(
+                {"type": stat.get("type"), "value": stat.get("value"), "team": team_key}
+            )
+    cache.set_cached(key, result, ttl=CURR_TTL)
+    return result
+
+
+@app.get("/api/external/fixtures/headtohead")
+def get_headtohead(
+    team1_id: int = Query(..., description="First team API-Football ID"),
+    team2_id: int = Query(..., description="Second team API-Football ID"),
+):
+    key = f"ext_h2h:{min(team1_id, team2_id)}:{max(team1_id, team2_id)}"
+    cached = cache.get_cached(key, sliding_ttl=CURR_TTL)
+    if cached is not None:
+        return cached
+    raw = api_football._get("fixtures/headtohead", {"h2h": f"{team1_id}-{team2_id}"})
+    fixtures = raw.get("response", [])
+    result = []
+    for f in fixtures:
+        fixture = f.get("fixture", {})
+        teams = f.get("teams", {})
+        goals = f.get("goals", {})
+        result.append(
+            {
+                "fixture_id": fixture.get("id"),
+                "date": fixture.get("date"),
+                "status_short": fixture.get("status", {}).get("short"),
+                "home_team": teams.get("home", {}).get("name"),
+                "away_team": teams.get("away", {}).get("name"),
+                "home_team_api_id": teams.get("home", {}).get("id"),
+                "away_team_api_id": teams.get("away", {}).get("id"),
+                "home_goals": goals.get("home"),
+                "away_goals": goals.get("away"),
+                "home_logo": teams.get("home", {}).get("logo"),
+                "away_logo": teams.get("away", {}).get("logo"),
+            }
+        )
+    cache.set_cached(key, result, ttl=CURR_TTL)
+    return result
+
+
+@app.get("/api/external/players/{player_api_id}/season-stats")
+def get_external_player_season_stats(
+    player_api_id: int,
+    league_id: int = Query(39, description="League ID (39=PL)"),
+    season: int = Query(2025),
+):
+    key = f"ext_player_season_stats:{player_api_id}:{league_id}:{season}"
+    cached = cache.get_cached(key, sliding_ttl=CURR_TTL)
+    if cached is not None:
+        return cached
+
+    raw = api_football.get_player_season_stats(player_api_id, league_id, season)
+    if not raw:
+        return {}
+
+    stats = raw.get("statistics", [])
+    if not stats:
+        return {}
+
+    stat = stats[0]
+    result = {
+        "player_name": raw.get("player", {}).get("name"),
+        "team": stat.get("team", {}).get("name"),
+        "position": stat.get("games", {}).get("position"),
+        "minutes": stat.get("games", {}).get("minutes"),
+        "goals": stat.get("goals", {}).get("total"),
+        "assists": stat.get("goals", {}).get("assists"),
+        "yellow_cards": stat.get("cards", {}).get("yellow"),
+        "red_cards": stat.get("cards", {}).get("red"),
+        "shots": stat.get("shots", {}).get("total"),
+        "shots_on_target": stat.get("shots", {}).get("on"),
+        "xg": stat.get("goals", {}).get("xg"),
+        "xa": stat.get("goals", {}).get("xassist"),
+    }
+    cache.set_cached(key, result, ttl=CURR_TTL)
+    return result
+
+
+@app.get("/api/external/players/{player_api_id}/match-stats")
+def get_external_player_match_stats(
+    player_api_id: int,
+    league_id: int = Query(39),
+    season: int = Query(2025),
+    limit: int = Query(10),
+):
+    key = f"ext_player_match_stats:{player_api_id}:{league_id}:{season}:{limit}"
+    cached = cache.get_cached(key, sliding_ttl=CURR_TTL)
+    if cached is not None:
+        return cached
+
+    raw = api_football.get_league_players(league_id, season, limit=1000)
+    player_data = next(
+        (p for p in raw if p.get("player", {}).get("id") == player_api_id), None
+    )
+
+    if not player_data:
+        return []
+
+    fixtures_list = player_data.get("statistics", [])
+    result = []
+
+    for fixture in fixtures_list[:limit]:
+        result.append(
+            {
+                "date": fixture.get("fixture", {}).get("date"),
+                "opponent": fixture.get("fixture", {}).get("opponent", ""),
+                "minutes": fixture.get("games", {}).get("minutes"),
+                "goals": fixture.get("goals", {}).get("total"),
+                "assists": fixture.get("goals", {}).get("assists"),
+                "yellow_cards": fixture.get("cards", {}).get("yellow"),
+                "red_cards": fixture.get("cards", {}).get("red"),
+                "shots": fixture.get("shots", {}).get("total"),
+                "xg": fixture.get("goals", {}).get("xg"),
+                "xa": fixture.get("goals", {}).get("xassist"),
+            }
+        )
+
     cache.set_cached(key, result, ttl=CURR_TTL)
     return result
 
@@ -942,7 +1101,7 @@ def get_team_overview(
     ttl, sliding = season_ttl(sid, curr)
     key = f"team_overview:{team_id}:{sid}"
 
-    def fetch():
+    def build_overview():
         # Profile
         profile_db = (
             db.query(crud.TeamProfile)
@@ -989,7 +1148,17 @@ def get_team_overview(
             season_history=history,
         )
 
-    result = get_or_fetch(key, fetch, ttl=ttl, sliding=sliding)
+    # For historical seasons: Cache → DB → (no external API, DB is source)
+    if sid < curr:
+        result = get_or_fetch_with_db(
+            key,
+            db_fetch_fn=build_overview,
+            external_fetch_fn=lambda: None,
+            ttl=ttl,
+            sliding=sliding,
+        )
+    else:
+        result = get_or_fetch(key, build_overview, ttl=ttl, sliding=sliding)
     if result is None:
         raise HTTPException(status_code=404, detail="Team not found")
     return result
@@ -1029,6 +1198,6 @@ def trigger_sync_player_profiles():
 
 @app.post("/api/admin/sync/player-advanced", tags=["admin"])
 def trigger_sync_player_advanced():
-    """Fetch xG/xA/progressive stats from TheStatsAPI for all mapped players."""
+    """Aggregate xG/xA stats from API-Football fixtures for all PL players."""
     sync_player_advanced_stats()
     return {"status": "ok", "job": "player_advanced_stats"}
