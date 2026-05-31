@@ -48,7 +48,7 @@ export const TeamFormTab: React.FC<Props> = ({ seasons, selectedSeasonId, setSel
   const [team2Id,    setTeam2Id]    = useState(0)
   const [form1,      setForm1]      = useState<TeamFormResponse | null>(null)
   const [form2,      setForm2]      = useState<TeamFormResponse | null>(null)
-  const [lastX,      setLastX]      = useState(5)
+  const [lastX,      setLastX]      = useState(10)
   const [loading,    setLoading]    = useState(false)
   const [h2h,        setH2h]        = useState<H2HMatch[]>([])
 

@@ -130,14 +130,6 @@ export const LeaguesTab: React.FC<Props> = ({ onTeamClick }) => {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <Globe className="w-5 h-5 text-indigo-400" />
-          <h2 className="text-2xl font-black text-white">European Leagues</h2>
-        </div>
-        <p className="text-sm text-slate-500">Top 5 European league tables. Click any team to view their profile.</p>
-      </div>
-
       {/* League selector */}
       <div className="glass-card p-2 rounded-2xl border border-white/5">
         <div className="flex flex-wrap gap-1">

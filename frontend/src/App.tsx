@@ -25,6 +25,7 @@ function App() {
   const { settings, saveSettings }              = useSettings()
   const [activeTab,        setActiveTab]        = useState('leagues')
   const [view,             setView]             = useState<View>({ type: 'tab' })
+  const [viewHistory,      setViewHistory]      = useState<View[]>([])
   const [seasons,          setSeasons]          = useState<Season[]>([])
   const [selectedSeasonId, setSelectedSeasonId] = useState(0)
   const [loading,          setLoading]          = useState(true)
@@ -63,12 +64,36 @@ function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [openSearch])
 
-  const navigateToTeam         = (teamId: number)             => setView({ type: 'team', teamId })
-  const navigateToExternalTeam = (params: ExternalTeamParams) => setView({ type: 'external-team', params })
-  const navigateToPlayer       = (playerId: number)           => setView({ type: 'player', playerId })
-  const navigateBack           = ()                           => setView({ type: 'tab' })
+  const navigateToTeam         = (teamId: number)             => {
+    setViewHistory([...viewHistory, view])
+    setView({ type: 'team', teamId })
+  }
+  const navigateToExternalTeam = (params: ExternalTeamParams) => {
+    setViewHistory([...viewHistory, view])
+    setView({ type: 'external-team', params })
+  }
+  const navigateToPlayer       = (playerId: number)           => {
+    setViewHistory([...viewHistory, view])
+    setView({ type: 'player', playerId })
+  }
+  const navigateBack           = () => {
+    if (viewHistory.length > 0) {
+      const newHistory = [...viewHistory]
+      const previousView = newHistory.pop()!
+      setViewHistory(newHistory)
+      setView(previousView)
+    } else {
+      setView({ type: 'tab' })
+    }
+  }
 
-  const handleTabChange = (tab: string) => { setActiveTab(tab); setView({ type: 'tab' }) }
+  const handleTabChange = (tab: string) => {
+    if (view.type !== 'tab') {
+      setViewHistory([...viewHistory, view])
+    }
+    setActiveTab(tab)
+    setView({ type: 'tab' })
+  }
 
   return (
     <div className="min-h-screen bg-[#060a13] text-slate-100 pb-20 selection:bg-indigo-500 selection:text-white">

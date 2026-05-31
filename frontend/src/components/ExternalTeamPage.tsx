@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { ArrowLeft, MapPin, Shield, History } from 'lucide-react'
 import type { ExternalTeamParams } from './LeaguesTab'
+import { ExternalMatchDetailModal } from './ExternalMatchDetailModal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -10,11 +11,13 @@ interface Fixture {
   status_short: string
   home_team: string
   away_team: string
-  home_logo: string | null
-  away_logo: string | null
+  home_team_api_id: number
+  away_team_api_id: number
+  home_logo?: string | null
+  away_logo?: string | null
   home_goals: number | null
   away_goals: number | null
-  home_winner: boolean | null
+  home_winner?: boolean | null
 }
 
 interface SquadPlayer {
@@ -69,6 +72,8 @@ export const ExternalTeamPage: React.FC<Props> = ({
   const [fixturesLoad,       setFixturesLoad]       = useState(true)
   const [squadLoad,          setSquadLoad]          = useState(true)
   const [unavailablePlayers, setUnavailablePlayers] = useState<Set<number | null>>(new Set())
+  const [selectedFixture,    setSelectedFixture]    = useState<Fixture | null>(null)
+  const [opponentApiId,      setOpponentApiId]      = useState<number | null>(null)
 
   useEffect(() => {
     // Fetch recent fixtures
@@ -128,7 +133,15 @@ export const ExternalTeamPage: React.FC<Props> = ({
   const sortedSquad = [...squad].sort((a, b) => (a.number ?? 99) - (b.number ?? 99))
 
   const pos = standing?.rank ?? null
-  const formStr = standing?.form ?? ''
+  const formStr = fixtures.slice(0, 10).map(f => {
+    if (f.home_goals === null || f.away_goals === null) return ''
+    const isHome = f.home_team === teamName
+    const gf = isHome ? f.home_goals : f.away_goals
+    const ga = isHome ? f.away_goals : f.home_goals
+    if (gf > ga) return 'W'
+    if (gf < ga) return 'L'
+    return 'D'
+  }).join('')
 
   return (
     <div className="space-y-6">
@@ -235,8 +248,16 @@ export const ExternalTeamPage: React.FC<Props> = ({
               const ga = isHome ? f.away_goals : f.home_goals
               const finished = ['FT', 'AET', 'PEN'].includes(f.status_short ?? '')
 
+              const oppApiId = isHome ? f.away_team_api_id : f.home_team_api_id
               return (
-                <div key={f.fixture_id ?? i} className="flex items-center gap-3 text-xs font-semibold p-2.5 rounded-xl bg-slate-900/40 border border-white/5">
+                <div
+                  key={f.fixture_id ?? i}
+                  onClick={() => {
+                    setSelectedFixture(f)
+                    setOpponentApiId(oppApiId)
+                  }}
+                  className="flex items-center gap-3 text-xs font-semibold p-2.5 rounded-xl bg-slate-900/40 border border-white/5 cursor-pointer hover:bg-slate-900/60 transition-colors"
+                >
                   <span className="text-slate-500 w-20 shrink-0">
                     {f.date ? new Date(f.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—'}
                   </span>
@@ -321,6 +342,23 @@ export const ExternalTeamPage: React.FC<Props> = ({
             </div>
           </div>
         )}
+
+      {/* Match Detail Modal */}
+      {selectedFixture && opponentApiId !== null && (
+        <ExternalMatchDetailModal
+          fixture={selectedFixture}
+          homeTeamApiId={selectedFixture.home_team_api_id}
+          awayTeamApiId={selectedFixture.away_team_api_id}
+          onClose={() => {
+            setSelectedFixture(null)
+            setOpponentApiId(null)
+          }}
+          onSelectFixture={(fixture, homeId, awayId) => {
+            setSelectedFixture(fixture)
+            setOpponentApiId(homeId === teamApiId ? awayId : homeId)
+          }}
+        />
+      )}
       </div>
     </div>
   )
