@@ -662,3 +662,321 @@ class TestLatestGameweekCRUD:
 
         gw = crud.get_latest_gameweek(db, season.id)
         assert gw == 15
+
+
+class TestCRUDMissingBranches:
+    """Targeted tests for previously uncovered crud.py branches."""
+
+    # ── get_players with team filter ──────────────────────────────────────────
+
+    def test_get_players_by_team_internal_id(self, db):
+        team = models.Team(name="Spurs", short_name="TOT", fpl_id=6)
+        player = models.Player(
+            first_name="Harry",
+            second_name="Kane",
+            position="FWD",
+            current_fpl_id=10,
+            fpl_team_id=6,
+        )
+        db.add_all([team, player])
+        db.commit()
+
+        results = crud.get_players(db, team_internal_id=team.id)
+        assert len(results) == 1
+        assert results[0].second_name == "Kane"
+
+    # ── get_standings / get_standings_history with no competition ─────────────
+
+    def test_get_standings_no_competition(self, db):
+        assert crud.get_standings(db, season_id=1) == []
+
+    def test_get_standings_history_no_competition(self, db):
+        assert crud.get_standings_history(db, season_id=1) == []
+
+    # ── get_team_form result branches ─────────────────────────────────────────
+
+    def _make_competition(self, db):
+        comp = models.Competition(name="Premier League", code="EPL", type="League")
+        db.add(comp)
+        db.commit()
+        return comp
+
+    def _make_match(
+        self, db, home_team, away_team, season, comp, result, home_goals, away_goals
+    ):
+        m = models.Match(
+            season_id=season.id,
+            competition_id=comp.id,
+            home_team_id=home_team.id,
+            away_team_id=away_team.id,
+            match_date=__import__("datetime").date(2024, 1, 1),
+            result=result,
+            home_goals=home_goals,
+            away_goals=away_goals,
+        )
+        db.add(m)
+        db.commit()
+        return m
+
+    def test_get_team_form_draw(self, db):
+        season = models.Season(label="2024-25", season_code="2425")
+        home = models.Team(name="Arsenal", short_name="ARS", fpl_id=1)
+        away = models.Team(name="Chelsea", short_name="CHE", fpl_id=2)
+        db.add_all([season, home, away])
+        db.commit()
+        comp = self._make_competition(db)
+        self._make_match(db, home, away, season, comp, "D", 1, 1)
+
+        form_list, form_str = crud.get_team_form(db, home.id, season.id)
+        assert form_str == "D"
+        assert form_list[0]["result"] == "D"
+
+    def test_get_team_form_loss(self, db):
+        season = models.Season(label="2024-25", season_code="2425")
+        home = models.Team(name="Arsenal", short_name="ARS", fpl_id=1)
+        away = models.Team(name="Chelsea", short_name="CHE", fpl_id=2)
+        db.add_all([season, home, away])
+        db.commit()
+        comp = self._make_competition(db)
+        self._make_match(db, home, away, season, comp, "A", 0, 2)
+
+        form_list, form_str = crud.get_team_form(db, home.id, season.id)
+        assert form_str == "L"
+        assert form_list[0]["result"] == "L"
+
+    # ── Profile upserts (update-existing branch) ──────────────────────────────
+
+    def test_upsert_team_profile_update_existing(self, db):
+        team = models.Team(name="Everton", short_name="EVE", fpl_id=7)
+        db.add(team)
+        db.commit()
+
+        crud.upsert_team_profile(db, team.id, {"logo_url": "http://old.png"})
+        crud.upsert_team_profile(db, team.id, {"logo_url": "http://new.png"})
+
+        profile = db.query(models.TeamProfile).filter_by(team_id=team.id).first()
+        assert profile.logo_url == "http://new.png"
+
+    def test_upsert_player_profile_update_existing(self, db):
+        player = models.Player(
+            first_name="Mo", second_name="Salah", position="FWD", current_fpl_id=99
+        )
+        db.add(player)
+        db.commit()
+
+        crud.upsert_player_profile(db, player.id, {"nationality": "Egyptian"})
+        crud.upsert_player_profile(db, player.id, {"nationality": "Egypt"})
+
+        profile = db.query(models.PlayerProfile).filter_by(player_id=player.id).first()
+        assert profile.nationality == "Egypt"
+
+    # ── Match events ──────────────────────────────────────────────────────────
+
+    def test_store_and_get_match_events(self, db):
+        events = [
+            {
+                "minute": 45,
+                "event_type": "Goal",
+                "player_name": "Kane",
+                "team_name": "Spurs",
+                "detail": None,
+                "assist_name": None,
+                "comments": None,
+                "extra_minute": None,
+            },
+        ]
+        crud.store_match_events(db, fixture_api_id=9001, events=events)
+        result = crud.get_match_events(db, fixture_api_id=9001)
+        assert len(result) == 1
+        assert result[0].minute == 45
+
+    def test_store_match_events_no_duplicate(self, db):
+        events = [
+            {
+                "minute": 10,
+                "event_type": "Card",
+                "player_name": "Silva",
+                "team_name": "City",
+                "detail": None,
+                "assist_name": None,
+                "comments": None,
+                "extra_minute": None,
+            },
+        ]
+        crud.store_match_events(db, fixture_api_id=9002, events=events)
+        crud.store_match_events(db, fixture_api_id=9002, events=events)
+        assert len(crud.get_match_events(db, fixture_api_id=9002)) == 1
+
+    # ── Match lineups ─────────────────────────────────────────────────────────
+
+    def test_store_and_get_match_lineups(self, db):
+        entries = [
+            {
+                "team_name": "Arsenal",
+                "formation": "4-3-3",
+                "player_name": "Raya",
+                "player_api_id": 1,
+                "is_starter": True,
+                "position": "G",
+                "grid": "1:1",
+                "shirt_number": 22,
+            },
+        ]
+        crud.store_match_lineups(db, fixture_api_id=8001, entries=entries)
+        result = crud.get_match_lineups(db, fixture_api_id=8001)
+        assert len(result) == 1
+        assert result[0].player_name == "Raya"
+
+    def test_store_match_lineups_no_duplicate(self, db):
+        entries = [
+            {
+                "team_name": "Chelsea",
+                "formation": "4-2-3-1",
+                "player_name": "Caballero",
+                "player_api_id": 2,
+                "is_starter": False,
+                "position": "G",
+                "grid": None,
+                "shirt_number": 1,
+            },
+        ]
+        crud.store_match_lineups(db, fixture_api_id=8002, entries=entries)
+        crud.store_match_lineups(db, fixture_api_id=8002, entries=entries)
+        assert len(crud.get_match_lineups(db, fixture_api_id=8002)) == 1
+
+    # ── Match advanced stats ──────────────────────────────────────────────────
+
+    def _make_match_with_season(self, db):
+        season = models.Season(label="2024-25", season_code="2425")
+        home = models.Team(name="T1", short_name="T1", fpl_id=11)
+        away = models.Team(name="T2", short_name="T2", fpl_id=12)
+        comp = models.Competition(name="Premier League", code="EPL", type="League")
+        db.add_all([season, home, away, comp])
+        db.commit()
+        m = models.Match(
+            season_id=season.id,
+            competition_id=comp.id,
+            home_team_id=home.id,
+            away_team_id=away.id,
+            match_date=__import__("datetime").date(2024, 3, 1),
+            result="H",
+            home_goals=2,
+            away_goals=0,
+        )
+        db.add(m)
+        db.commit()
+        return m
+
+    def test_get_match_advanced_stats_none(self, db):
+        assert crud.get_match_advanced_stats(db, match_id=99999) is None
+
+    def test_upsert_match_advanced_stats_insert(self, db):
+        m = self._make_match_with_season(db)
+        crud.upsert_match_advanced_stats(
+            db,
+            m.id,
+            {
+                "home_xg": 1.5,
+                "away_xg": 0.8,
+                "home_possession": 55.0,
+                "away_possession": 45.0,
+                "home_ppda": None,
+                "away_ppda": None,
+            },
+        )
+        stats = crud.get_match_advanced_stats(db, m.id)
+        assert stats.home_xg == 1.5
+
+    def test_upsert_match_advanced_stats_update(self, db):
+        m = self._make_match_with_season(db)
+        crud.upsert_match_advanced_stats(
+            db,
+            m.id,
+            {
+                "home_xg": 1.0,
+                "away_xg": 0.5,
+                "home_possession": 50.0,
+                "away_possession": 50.0,
+                "home_ppda": None,
+                "away_ppda": None,
+            },
+        )
+        crud.upsert_match_advanced_stats(
+            db,
+            m.id,
+            {
+                "home_xg": 2.0,
+                "away_xg": 1.0,
+                "home_possession": 60.0,
+                "away_possession": 40.0,
+                "home_ppda": None,
+                "away_ppda": None,
+            },
+        )
+        stats = crud.get_match_advanced_stats(db, m.id)
+        assert stats.home_xg == 2.0
+
+    # ── Player advanced stats upsert ──────────────────────────────────────────
+
+    def test_upsert_player_advanced_stats_insert(self, db):
+        season = models.Season(label="2024-25", season_code="2425")
+        player = models.Player(
+            first_name="Bukayo", second_name="Saka", position="MID", current_fpl_id=55
+        )
+        db.add_all([season, player])
+        db.commit()
+
+        crud.upsert_player_advanced_stats(
+            db,
+            player.id,
+            season.id,
+            {
+                "xg": 8.5,
+                "xa": 6.2,
+                "npxg": 7.9,
+                "xg_per_90": 0.4,
+                "xa_per_90": 0.3,
+                "progressive_carries": 80,
+                "progressive_passes": 120,
+                "progressive_receptions": 90,
+                "shots": 75,
+                "shots_on_target": 30,
+            },
+        )
+        stats = (
+            db.query(models.PlayerAdvancedStats)
+            .filter_by(player_id=player.id, season_id=season.id)
+            .first()
+        )
+        assert stats.xg == 8.5
+
+    def test_upsert_player_advanced_stats_update(self, db):
+        season = models.Season(label="2024-25", season_code="2425")
+        player = models.Player(
+            first_name="Bukayo", second_name="Saka", position="MID", current_fpl_id=55
+        )
+        db.add_all([season, player])
+        db.commit()
+
+        data = {
+            "xg": 5.0,
+            "xa": 3.0,
+            "npxg": 4.5,
+            "xg_per_90": 0.3,
+            "xa_per_90": 0.2,
+            "progressive_carries": 60,
+            "progressive_passes": 100,
+            "progressive_receptions": 70,
+            "shots": 50,
+            "shots_on_target": 20,
+        }
+        crud.upsert_player_advanced_stats(db, player.id, season.id, data)
+        data["xg"] = 9.9
+        crud.upsert_player_advanced_stats(db, player.id, season.id, data)
+
+        stats = (
+            db.query(models.PlayerAdvancedStats)
+            .filter_by(player_id=player.id, season_id=season.id)
+            .first()
+        )
+        assert stats.xg == 9.9

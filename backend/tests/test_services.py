@@ -135,6 +135,151 @@ class TestCacheService:
         assert result == {"data": "sliding"}
 
 
+class TestCacheInternals:
+    """Tests for cache primitives and tiered helpers."""
+
+    def test_serialize_pydantic_model(self):
+        from app.schemas import SeasonSchema
+        from app.services.cache import _serialize
+
+        model = SeasonSchema(id=1, label="2024-25", season_code="2425")
+        result = _serialize(model)
+        assert isinstance(result, dict)
+        assert result["id"] == 1
+
+    def test_serialize_list_with_model(self):
+        from app.schemas import SeasonSchema
+        from app.services.cache import _serialize
+
+        model = SeasonSchema(id=2, label="2023-24", season_code="2324")
+        result = _serialize([model, {"plain": "dict"}])
+        assert isinstance(result, list)
+        assert result[0]["id"] == 2
+        assert result[1] == {"plain": "dict"}
+
+    def test_serialize_nested_dict(self):
+        from app.schemas import SeasonSchema
+        from app.services.cache import _serialize
+
+        model = SeasonSchema(id=3, label="2022-23", season_code="2223")
+        result = _serialize({"key": model})
+        assert result["key"]["id"] == 3
+
+    def test_get_cached_redis_exception_returns_none(self):
+        from unittest.mock import patch
+
+        from app.services.cache import get_cached
+
+        with patch("app.services.cache.get_redis", side_effect=Exception("Redis down")):
+            result = get_cached("any_key")
+        assert result is None
+
+    def test_set_cached_calls_redis(self):
+        from unittest.mock import MagicMock, patch
+
+        from app.services.cache import set_cached
+
+        mock_redis = MagicMock()
+        with patch("app.services.cache.get_redis", return_value=mock_redis):
+            set_cached("test_key", {"val": 1}, ttl=60)
+        mock_redis.setex.assert_called_once()
+
+    def test_set_cached_exception_is_silent(self):
+        from unittest.mock import patch
+
+        from app.services.cache import set_cached
+
+        with patch("app.services.cache.get_redis", side_effect=Exception("Redis down")):
+            set_cached("any_key", {"val": 1}, ttl=60)  # must not raise
+
+    def test_delete_cached_calls_redis(self):
+        from unittest.mock import MagicMock, patch
+
+        from app.services.cache import delete_cached
+
+        mock_redis = MagicMock()
+        with patch("app.services.cache.get_redis", return_value=mock_redis):
+            delete_cached("some_key")
+        mock_redis.delete.assert_called_once_with("some_key")
+
+    def test_delete_cached_exception_is_silent(self):
+        from unittest.mock import patch
+
+        from app.services.cache import delete_cached
+
+        with patch("app.services.cache.get_redis", side_effect=Exception("Redis down")):
+            delete_cached("any_key")  # must not raise
+
+    def test_get_or_fetch_with_db_db_hit(self):
+        from unittest.mock import MagicMock, patch
+
+        from app.services.cache import get_or_fetch_with_db
+
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None  # cache miss
+
+        with patch("app.services.cache.get_redis", return_value=mock_redis):
+            result = get_or_fetch_with_db(
+                key="db_hit_key",
+                db_fetch_fn=lambda: {"source": "db"},
+                external_fetch_fn=lambda: {"source": "api"},
+                ttl=60,
+            )
+        assert result == {"source": "db"}
+
+    def test_get_or_fetch_with_db_external_hit(self):
+        from unittest.mock import MagicMock, patch
+
+        from app.services.cache import get_or_fetch_with_db
+
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None  # cache miss
+
+        with patch("app.services.cache.get_redis", return_value=mock_redis):
+            result = get_or_fetch_with_db(
+                key="ext_hit_key",
+                db_fetch_fn=lambda: None,  # DB miss
+                external_fetch_fn=lambda: {"source": "api"},
+                ttl=60,
+            )
+        assert result == {"source": "api"}
+
+    def test_get_or_fetch_with_db_all_miss(self):
+        from unittest.mock import MagicMock, patch
+
+        from app.services.cache import get_or_fetch_with_db
+
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None
+
+        with patch("app.services.cache.get_redis", return_value=mock_redis):
+            result = get_or_fetch_with_db(
+                key="all_miss_key",
+                db_fetch_fn=lambda: None,
+                external_fetch_fn=lambda: None,
+                ttl=60,
+            )
+        assert result is None
+
+    def test_get_current_season_id_db_path(self, db):
+        from unittest.mock import MagicMock, patch
+
+        from app.models import Season
+        from app.services.cache import get_current_season_id
+
+        season = Season(label="2024-25", season_code="2425")
+        db.add(season)
+        db.commit()
+
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None  # force cache miss
+
+        with patch("app.services.cache.get_redis", return_value=mock_redis):
+            sid = get_current_season_id(db)
+
+        assert sid == season.id
+
+
 class TestAPIFootballService:
     """Tests for API-Football service integration"""
 
