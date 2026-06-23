@@ -52,8 +52,8 @@ export const LiveTab: React.FC<Props> = ({ onTeamClick: _onTeamClick }) => {
 
   const fetchData = useCallback(async () => {
     const [liveRes, upcomingRes] = await Promise.allSettled([
-      fetch('http://localhost:8000/api/live').then(r => r.json()),
-      fetch('http://localhost:8000/api/fixtures').then(r => r.json()),
+      fetch('/api/live').then(r => r.json()),
+      fetch('/api/fixtures').then(r => r.json()),
     ])
     if (liveRes.status === 'fulfilled' && liveRes.value?.fixtures) {
       setLiveFixtures(liveRes.value.fixtures)

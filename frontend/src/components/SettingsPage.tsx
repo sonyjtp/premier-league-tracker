@@ -26,8 +26,8 @@ export const SettingsPage: React.FC = () => {
   const [saved,   setSaved]         = useState(false)
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/leagues').then(r => r.json()).then(setLeagues).catch(() => {})
-    fetch('http://localhost:8000/api/teams').then(r => r.json()).then(setTeams).catch(() => {})
+    fetch('/api/leagues').then(r => r.json()).then(setLeagues).catch(() => {})
+    fetch('/api/teams').then(r => r.json()).then(setTeams).catch(() => {})
   }, [])
 
   function selectLeague(league: League) {

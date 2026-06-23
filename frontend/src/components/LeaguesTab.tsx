@@ -81,7 +81,7 @@ export const LeaguesTab: React.FC<Props> = ({ onTeamClick }) => {
 
   // Load league list once
   useEffect(() => {
-    fetch('http://localhost:8000/api/leagues')
+    fetch('/api/leagues')
       .then(r => r.json())
       .then(data => {
         setLeagues(data)
@@ -97,7 +97,7 @@ export const LeaguesTab: React.FC<Props> = ({ onTeamClick }) => {
     if (!activeLeague) return
     setLoading(true)
     setError(null)
-    fetch(`http://localhost:8000/api/leagues/${activeLeague.id}/standings?season=${season}`)
+    fetch(`/api/leagues/${activeLeague.id}/standings?season=${season}`)
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {

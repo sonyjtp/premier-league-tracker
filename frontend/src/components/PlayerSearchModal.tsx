@@ -58,8 +58,8 @@ export const PlayerSearchModal: React.FC<Props> = ({
     const enc = encodeURIComponent(q)
 
     Promise.all([
-      fetch(`http://localhost:8000/api/players?query=${enc}`).then(r => r.json()),
-      fetch(`http://localhost:8000/api/teams?query=${enc}`).then(r => r.json()),
+      fetch(`/api/players?query=${enc}`).then(r => r.json()),
+      fetch(`/api/teams?query=${enc}`).then(r => r.json()),
     ])
       .then(([playerData, teamData]) => {
         setPlayers(

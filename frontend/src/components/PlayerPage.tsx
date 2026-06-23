@@ -105,7 +105,7 @@ export const PlayerPage: React.FC<Props> = ({ playerId, onBack }) => {
 
   const fetchPlayer = async (ids: number[]) => {
     setLoading(true)
-    const res  = await fetch(`http://localhost:8000/api/players/compare?ids=${ids.join(',')}`)
+    const res  = await fetch(`/api/players/compare?ids=${ids.join(',')}`)
     const data = await res.json()
     setPlayers(Array.isArray(data) ? data : [])
 
@@ -113,7 +113,7 @@ export const PlayerPage: React.FC<Props> = ({ playerId, onBack }) => {
     const statsMap: { [key: number]: AdvancedStats[] } = {}
     for (const id of ids) {
       try {
-        const advRes = await fetch(`http://localhost:8000/api/players/${id}/advanced`)
+        const advRes = await fetch(`/api/players/${id}/advanced`)
         const advData = await advRes.json()
         statsMap[id] = Array.isArray(advData) ? advData : []
       } catch {

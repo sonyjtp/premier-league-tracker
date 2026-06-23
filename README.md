@@ -16,7 +16,7 @@
 [![Code Style](https://img.shields.io/badge/Code%20Style-Black-000000?style=flat-square)](https://github.com/psf/black)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-A comprehensive Python-React-PostgreSQL analytics platform for visualizing and comparing English Premier League player and team performances with cross-league European data. Track 10 seasons of historical data, live match updates, and advanced statistics (xG, xA) from multiple sports data APIs.
+A comprehensive Python-React-PostgreSQL analytics platform for visualizing and comparing English Premier League player and team performances with cross-league European data. Track 10 seasons of historical data, live match updates, and advanced statistics (xG, xA) sourced from Understat via soccerdata.
 
 ## 🎯 Key Features
 
@@ -57,6 +57,7 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
 ### 🔌 **Multi-Source Data Integration**
 - **Fantasy Premier League API** – Player rosters, FPL points, historical player data
 - **API-Football (api-sports.io)** – Live fixtures, upcoming matches, team squads, European league data
+- **Understat (via soccerdata)** – xG and xA data for Big-5 domestic leagues (PL, La Liga, Bundesliga, Serie A, Ligue 1), seasons 2014–present
 - **TheStatsAPI** – Match analytics and advanced statistics (fallback source)
 
 ### ⚙️ **Background Services & Caching**
@@ -65,7 +66,7 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
   - Upcoming fixtures: every 5 minutes
   - Match analytics: every 2 hours
   - Player profiles: daily at 3 AM
-  - Advanced stats: weekly on Mondays at 4 AM
+  - Advanced stats (xG/xA from Understat): weekly on Mondays at 4 AM
 
 - **Tiered Caching for Historical Data** – Optimal performance with minimal API calls:
   1. **Redis Cache** (fastest) – In-memory cache with 180-day sliding TTL
@@ -84,15 +85,15 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
 
 ## 🏗️ Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Recharts |
-| **Backend** | Python 3.10+, FastAPI, SQLAlchemy ORM, Pydantic |
-| **Database** | PostgreSQL 15, Redis (caching) |
-| **Infrastructure** | Docker, Docker Compose |
-| **API Integration** | Fantasy Premier League, API-Football, TheStatsAPI |
-| **State Management** | React Context API |
-| **Scheduling** | APScheduler |
+| Layer                | Technology                                                                |
+|----------------------|---------------------------------------------------------------------------|
+| **Frontend**         | React 18, TypeScript, Vite, Tailwind CSS, Recharts                        |
+| **Backend**          | Python 3.10+, FastAPI, SQLAlchemy ORM, Pydantic                           |
+| **Database**         | PostgreSQL 15, Redis (caching)                                            |
+| **Infrastructure**   | Docker, Docker Compose                                                    |
+| **API Integration**  | Fantasy Premier League, API-Football, Understat (soccerdata), TheStatsAPI |
+| **State Management** | React Context API                                                         |
+| **Scheduling**       | APScheduler                                                               |
 
 ## 📁 Directory Structure
 
@@ -109,6 +110,7 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
 │   │   ├── services/
 │   │   │   ├── cache.py              # Redis cache-aside pattern
 │   │   │   ├── api_football.py       # API-Football HTTP client
+│   │   │   ├── understat.py          # Understat xG/xA wrapper (soccerdata)
 │   │   │   └── the_stats_api.py      # TheStatsAPI HTTP client
 │   │   └── pipeline/
 │   │       ├── ingest.py             # FPL data ingestion & player sync
@@ -243,7 +245,7 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
 
 ### Core Tables
 - **teams** – PL teams with fpl_id, api_football_id
-- **players** – PL players with current_fpl_id, fpl_team_id, position
+- **players** – PL players with current_fpl_id, fpl_team_id, position, understat_id
 - **matches** – Fixture results with home/away goals, shots, SoT
 - **seasons** – Historical seasons (2015-2026)
 - **gameweek_standings** – Standings snapshot per gameweek
@@ -264,11 +266,14 @@ The app requires API keys for external data sources:
 # Fantasy Premier League (free)
 # No API key needed; uses official public endpoints
 
-# API-Football (api-sports.io)
+# API-Football (api-sports.io) — live fixtures, European leagues
 API_FOOTBALL_KEY=your_key_here
 # Get from: https://rapidapi.com/api-sports/api/api-football
 
-# TheStatsAPI (for advanced stats fallback)
+# Understat (via soccerdata) — xG/xA data, free, no key required
+# Data is scraped from understat.com and cached locally in ~/soccerdata/data/
+
+# TheStatsAPI (for match analytics fallback)
 STATS_API_KEY=your_key_here
 ```
 
@@ -307,7 +312,13 @@ STATS_API_KEY=your_key_here
 Manually trigger any sync job via API POST requests (useful for testing):
 
 ```bash
-# Manually sync player advanced stats (xG/xA) — useful for immediate testing
+# One-time: fuzzy-match internal players to Understat IDs (run after adding new players)
+curl -X POST http://localhost:8000/api/admin/sync/understat-map
+
+# Fetch xG/xA from Understat for all mapped players across all seasons
+curl -X POST http://localhost:8000/api/admin/sync/understat-xg
+
+# Sync player advanced stats (shots, minutes) from API-Football fixtures
 curl -X POST http://localhost:8000/api/admin/sync/player-advanced
 
 # Other available triggers:
@@ -316,7 +327,14 @@ curl -X POST http://localhost:8000/api/admin/sync/match-analytics
 curl -X POST http://localhost:8000/api/admin/sync/player-profiles
 ```
 
-**Note:** The player advanced stats sync aggregates xG/xA from fixture-level player statistics across all completed matches in a season. It runs weekly but can be triggered manually to populate data immediately.
+**Initial setup sequence** (run once after first install):
+```bash
+python -m app.pipeline.migrate                  # adds understat_id column
+curl -X POST .../api/admin/sync/understat-map   # fuzzy-match players → Understat IDs
+curl -X POST .../api/admin/sync/understat-xg    # populate xG/xA for all seasons
+```
+
+**Note:** `understat-map` uses a multi-strategy fuzzy matcher (token sort ratio + token set ratio + word-boundary fallback) to match FPL player names to Understat's canonical names. A specificity bonus prefers longer Understat names to resolve ambiguous matches (e.g. "Gabriel Jesus" beats "Gabriel" for Gabriel Fernando de Jesus). Players with common names shared by multiple squad members are left unmapped to avoid wrong assignments — these can be set manually via direct DB update.
 
 ### Cache Tiers
 - **Live/Real-time**: 60–300 seconds (Redis)
@@ -387,18 +405,19 @@ curl -X POST http://localhost:8000/api/admin/sync/player-profiles
 ## ✨ UI/UX Enhancements
 
 ### Recent Features
+- **xG/xA from Understat** – Expected goals and assists populated from Understat (via soccerdata) for all Big-5 league players, seasons 2014–present; displayed on player profile and comparison pages
+- **Team Logo Persistence** – Team badge now correctly persists when navigating from European league view to 10-season history page
+- **Clearer Match Labels** – "Last 10 Matches" and "Form" replace generic labels that implied only recent data
 - **Extended Form Analysis** – View last 10 matches in team form comparisons (up from 5)
 - **Interactive Match Details** – Click any recent match to drill into full statistics and analytics
 - **Organized Match Statistics** – Statistics grouped by category (Attacking, Defensive, Possession, Set Pieces, Discipline) for easier interpretation
 - **H2H Match History** – Complete head-to-head records sorted by date with clickable individual matches
-- **Player Advanced Stats** – xG and xA metrics integrated into player comparison pages alongside traditional stats
 - **Smart Navigation** – Back buttons remember your previous page (not just the home page)
 - **Rebranded UI** – "The SouthStand Lens" identity across the application
 
 ## 🚧 Future Features & Roadmap
 
 ### High Priority
-- **Fix xG/xA Sync** – Debug and resolve player advanced stats population from API-Football fixtures endpoint
 - **Player Stats per Match** – Display individual match performances (goals, assists, xG, minutes) for each player
 - **Team vs Team Trends** – Multi-season comparison charts for head-to-head records
 - **Player Injury/Status** – Track player availability and injury history
@@ -480,8 +499,9 @@ npm run test:coverage                     # With coverage report
 
 **Coverage by Module:**
 - `schemas.py` & `models.py`: 100% ✅
-- `crud.py`: 70.21%
-- `cache.py`: 75.86%
+- `crud.py`: 70%+
+- `cache.py`: 75%+
+- `services/understat.py`: covered by unit tests with mocked soccerdata
 - **Excluded**: pipeline scripts, config, database setup, API endpoints, external service clients (these are infrastructure code)
 
 ### Code Quality Standards
@@ -513,7 +533,8 @@ MIT License – see LICENSE file for details.
 
 - **Fantasy Premier League** – Player data, FPL points
 - **API-Football (api-sports.io)** – Live fixtures, European league data
-- **TheStatsAPI** – Advanced analytics (xG, xA) fallback
+- **Understat / soccerdata** – xG and xA statistics (Big-5 leagues, 2014–present)
+- **TheStatsAPI** – Match analytics fallback
 - **Recharts** – Data visualization
 - **Tailwind CSS** – Styling
 - **SQLAlchemy** – ORM

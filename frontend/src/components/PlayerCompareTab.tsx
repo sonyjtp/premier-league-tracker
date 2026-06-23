@@ -73,7 +73,7 @@ export const PlayerCompareTab: React.FC = () => {
     if (searchQuery.trim().length < 2) { setSearchResults([]); return }
     setSearching(true)
     const t = setTimeout(() => {
-      fetch(`http://localhost:8000/api/players?query=${searchQuery}`)
+      fetch(`/api/players?query=${searchQuery}`)
         .then(r => r.json())
         .then(data => { setSearchResults(data); setSearching(false) })
         .catch(() => setSearching(false))
@@ -88,14 +88,14 @@ export const PlayerCompareTab: React.FC = () => {
     if (!teamId) return
     defaultsLoaded.current = true
 
-    fetch(`http://localhost:8000/api/players?team_internal_id=${teamId}&limit=20`)
+    fetch(`/api/players?team_internal_id=${teamId}&limit=20`)
       .then(r => r.json())
       .then(async (players: Player[]) => {
         if (!Array.isArray(players) || players.length === 0) return
         // Pick first 2 players that have recorded stats
         const toAdd = players.slice(0, 2)
         for (const player of toAdd) {
-          const res  = await fetch(`http://localhost:8000/api/players/compare?ids=${player.id}`)
+          const res  = await fetch(`/api/players/compare?ids=${player.id}`)
           const data = await res.json()
           if (data?.[0]) {
             setCompareList(prev =>
@@ -112,7 +112,7 @@ export const PlayerCompareTab: React.FC = () => {
   const addPlayer = (player: Player) => {
     if (compareList.length >= 3) { alert('Max 3 players'); return }
     if (compareList.some(p => p.player.id === player.id)) return
-    fetch(`http://localhost:8000/api/players/compare?ids=${player.id}`)
+    fetch(`/api/players/compare?ids=${player.id}`)
       .then(r => r.json())
       .then(data => {
         if (data?.[0]) {

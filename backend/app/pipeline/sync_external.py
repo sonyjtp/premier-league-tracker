@@ -9,7 +9,9 @@ from datetime import date, datetime, timedelta
 from app import crud
 from app.database import SessionLocal
 from app.services import api_football, cache, the_stats_api
+from app.services import understat as understat_service
 from fuzzywuzzy import fuzz
+from rapidfuzz import fuzz as rfuzz
 
 logger = logging.getLogger(__name__)
 
@@ -304,16 +306,13 @@ def _parse_api_football_stats(stats: dict) -> dict:
         return {}
 
     shots = stats.get("shots", {})
-    passes = stats.get("passes", {})
+    # passes = stats.get("passes", {}) TODO
     games = stats.get("games", {})
 
-    # API-Football provides expected goals in shots.expected
-    xg = shots.get("expected")
-    minutes = games.get("minutes_played", 0)
+    xg = stats.get("goals", {}).get("xg")
+    xa = stats.get("goals", {}).get("xassist")
+    minutes = games.get("minutes", 0) or 0
     xg_90 = (xg * 90) / minutes if xg and minutes > 0 else None
-
-    # xA estimation from passes.expected if available
-    xa = passes.get("expected") if passes else None
     xa_90 = (xa * 90) / minutes if xa and minutes > 0 else None
 
     return {
@@ -350,9 +349,9 @@ def _parse_fixture_player_stats(player_data: dict, player_api_id: int) -> dict:
     passes = stat.get("passes", {})
     games = stat.get("games", {})
 
-    xg = shots.get("expected")
+    xg = stat.get("goals", {}).get("xg") or shots.get("expected")
     xa = passes.get("expected")
-    minutes = games.get("minutes_played", 0)
+    minutes = games.get("minutes", 0)
 
     xg_90 = (xg * 90) / minutes if xg and minutes > 0 else None
     xa_90 = (xa * 90) / minutes if xa and minutes > 0 else None
@@ -439,28 +438,235 @@ def sync_player_advanced_stats():
                     )
                     .first()
                 )
-                if existing:
+                if existing and existing.xg is not None:
                     continue
 
                 season_year = int(s.season.label.split("-")[0])
-                fixtures = crud.get_fixtures_for_season(db, 39, season_year)
-
-                if not fixtures:
+                raw = api_football.get_player_season_stats(
+                    p.api_football_id, season=season_year
+                )
+                if not raw:
                     continue
 
-                data = _aggregate_fixture_player_stats(fixtures, p.api_football_id)
-
-                if not data or data["minutes"] == 0:
+                data = _parse_api_football_stats(raw)
+                if not data or data.get("xg") is None:
                     continue
 
                 crud.upsert_player_advanced_stats(db, p.id, s.season_id, data)
                 synced += 1
                 logger.info(
-                    f"[sync] {p.name}: {data['xg']:.1f} xG, {data['xa']:.1f} xA"
+                    f"[sync] {p.name} {s.season.label}: {data['xg']:.2f} xG, "
+                    f"{data.get('xa', 0) or 0:.2f} xA"
                 )
-                time.sleep(0.2)
+                time.sleep(0.4)
         logger.info(f"[sync] player_advanced_stats: {synced} synced")
     except Exception as e:
         logger.error(f"[sync] player_advanced_stats failed: {e}")
+    finally:
+        db.close()
+
+
+# ── Understat xG/xA sync ──────────────────────────────────────────────────────
+
+UNDERSTAT_LEAGUES = ["ENG-Premier League"]
+
+
+def sync_understat_player_ids(leagues: list = None, seasons: list = None):
+    """
+    Fuzzy-match internal players against Understat player names and store
+    their stable understat_id. Only runs for players without one already.
+    Run once manually after adding new players.
+    """
+    leagues = leagues or UNDERSTAT_LEAGUES
+    # Use the last 3 seasons to catch players who may have left the league
+    seasons = seasons or [2024, 2023, 2022]
+
+    db = SessionLocal()
+    try:
+        # Collect all Understat players across the requested seasons
+        understat_map: dict[str, int] = {}  # canonical_name -> understat_id
+        for season_year in seasons:
+            rows = understat_service.get_player_season_stats(leagues, season_year)
+            for row in rows:
+                understat_map[row["player"]] = row["player_id"]
+
+        if not understat_map:
+            logger.warning("[understat] no players fetched for mapping")
+            return
+
+        understat_names = list(understat_map.keys())
+        # Single-word Understat names (e.g. "Richarlison", "Alisson") need word-boundary matching
+        single_word_names = {n for n in understat_names if " " not in n}
+
+        players = db.query(crud.Player).filter(crud.Player.understat_id.is_(None)).all()
+
+        # Collect all candidate matches, then resolve collisions greedily by score.
+        # Specificity bonus: prefer longer Understat names over shorter ones
+        # (e.g. "Gabriel Jesus" > "Gabriel" for "Gabriel Fernando de Jesus").
+        import re as _re
+
+        def _specificity(uname: str) -> int:
+            return (len(uname.split()) - 1) * 15
+
+        # Build word-boundary regex patterns once for efficiency
+        word_pat = {
+            uname: _re.compile(
+                r"(?<!\w)" + _re.escape(uname) + r"(?!\w)", _re.IGNORECASE
+            )
+            for uname in single_word_names
+        }
+
+        # For single-word Understat names, count how many internal players match via word
+        # boundary. If more than one player matches (e.g. "Gabriel" matches 5 players),
+        # skip word_in_name entirely for that name to avoid wrong assignments.
+        all_names = [f"{p.first_name} {p.second_name}".strip() for p in players]
+        word_name_unique: dict[
+            str, bool
+        ] = {}  # uname -> True if only 1 internal player has it
+        for uname, pat in word_pat.items():
+            count = sum(1 for n in all_names if pat.search(n))
+            word_name_unique[uname] = count == 1
+
+        candidates_list = []  # (score, player, understat_name)
+        for p in players:
+            full_name = f"{p.first_name} {p.second_name}".strip()
+            best_match, best_score = None, 0
+
+            # Evaluate every Understat name; apply specificity bonus so longer names
+            # win ties over shorter ones (e.g. "Gabriel Jesus" beats "Gabriel").
+            for uname in understat_names:
+                ts = rfuzz.token_sort_ratio(full_name, uname)
+                tset = rfuzz.token_set_ratio(full_name, uname)
+
+                raw = 0
+                if ts >= 80:
+                    raw = ts
+                # token_set_ratio only for multi-word Understat names to avoid false positives
+                # like any player with "Gabriel" matching the single-word "Gabriel"
+                if " " in uname and tset >= 90 and tset > raw:
+                    raw = tset
+
+                if raw == 0:
+                    # Word-boundary fallback only for single-word names that are unambiguous
+                    # (only one internal player has that exact word in their name)
+                    if (
+                        uname in word_pat
+                        and word_name_unique.get(uname)
+                        and word_pat[uname].search(full_name)
+                    ):
+                        raw = 95
+
+                if raw == 0:
+                    continue
+
+                s = raw + _specificity(uname)
+                if s > best_score:
+                    best_match, best_score = uname, s
+
+            if best_match:
+                candidates_list.append((best_score, p, best_match))
+
+        # Greedy assignment: highest score wins; each internal player and each
+        # understat_id can only be assigned once.
+        candidates_list.sort(key=lambda x: x[0], reverse=True)
+        taken_uids: set[int] = set()
+        taken_pids: set[int] = set()
+        mapped = 0
+        for score, p, uname in candidates_list:
+            uid = understat_map[uname]
+            if uid in taken_uids or p.id in taken_pids:
+                continue
+            p.understat_id = uid
+            taken_uids.add(uid)
+            taken_pids.add(p.id)
+            mapped += 1
+            logger.info(
+                f"[understat] mapped '{p.first_name} {p.second_name}' → '{uname}' "
+                f"(id={uid}, score={score:.0f})"
+            )
+
+        db.commit()
+        logger.info(f"[understat] player ID mapping: {mapped}/{len(players)} mapped")
+    except Exception as e:
+        logger.error(f"[understat] player ID mapping failed: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def sync_understat_xg(leagues: list = None):
+    """
+    Fetch xG/xA from Understat for all players with an understat_id.
+    Iterates over every season in the DB and writes into PlayerAdvancedStats.
+    Skips seasons already populated (xg is not None).
+    Runs weekly alongside the regular advanced stats job.
+    """
+    leagues = leagues or UNDERSTAT_LEAGUES
+
+    db = SessionLocal()
+    try:
+        seasons = db.query(crud.Season).all()
+        synced = 0
+
+        for season in seasons:
+            season_year = int(season.label.split("-")[0])
+            if season_year < 2014:
+                continue  # Understat only goes back to 2014-15
+
+            rows = understat_service.get_player_season_stats(leagues, season_year)
+            if not rows:
+                continue
+
+            # Index by understat player_id for O(1) lookup
+            stats_by_understat_id = {row["player_id"]: row for row in rows}
+
+            players = (
+                db.query(crud.Player).filter(crud.Player.understat_id.isnot(None)).all()
+            )
+
+            for p in players:
+                row = stats_by_understat_id.get(p.understat_id)
+                if not row or not row.get("minutes"):
+                    continue  # player didn't play this season
+
+                existing = (
+                    db.query(crud.PlayerAdvancedStats)
+                    .filter(
+                        crud.PlayerAdvancedStats.player_id == p.id,
+                        crud.PlayerAdvancedStats.season_id == season.id,
+                    )
+                    .first()
+                )
+                if existing and existing.xg is not None:
+                    continue
+
+                minutes = row["minutes"] or 0
+                xg = row.get("xg")
+                xa = row.get("xa")
+                crud.upsert_player_advanced_stats(
+                    db,
+                    p.id,
+                    season.id,
+                    {
+                        "xg": xg,
+                        "xa": xa,
+                        "npxg": row.get("np_xg"),
+                        "xg_per_90": (xg * 90 / minutes)
+                        if xg and minutes > 0
+                        else None,
+                        "xa_per_90": (xa * 90 / minutes)
+                        if xa and minutes > 0
+                        else None,
+                        "shots": row.get("shots"),
+                    },
+                )
+                synced += 1
+
+            logger.info(f"[understat] {season.label}: {synced} records written so far")
+
+        logger.info(f"[understat] xG sync complete: {synced} total")
+    except Exception as e:
+        logger.error(f"[understat] xG sync failed: {e}")
+        db.rollback()
     finally:
         db.close()

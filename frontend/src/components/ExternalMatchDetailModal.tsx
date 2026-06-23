@@ -42,11 +42,11 @@ export const ExternalMatchDetailModal: React.FC<Props> = ({
 
   useEffect(() => {
     Promise.all([
-      fetch(`http://localhost:8000/api/external/fixtures/${fixture.fixture_id}/statistics`)
+      fetch(`/api/external/fixtures/${fixture.fixture_id}/statistics`)
         .then(r => r.json())
         .catch(() => []),
       fetch(
-        `http://localhost:8000/api/external/fixtures/headtohead?team1_id=${homeTeamApiId}&team2_id=${awayTeamApiId}`
+        `/api/external/fixtures/headtohead?team1_id=${homeTeamApiId}&team2_id=${awayTeamApiId}`
       )
         .then(r => r.json())
         .catch(() => []),

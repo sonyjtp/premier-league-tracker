@@ -149,7 +149,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
     if (!selectedSeasonId || mode !== 'teams') return
 
     setLoading(true)
-    fetch(`http://localhost:8000/api/standings/history?season_id=${selectedSeasonId}`)
+    fetch(`/api/standings/history?season_id=${selectedSeasonId}`)
       .then((res) => res.json())
       .then((data) => {
         setChartDataTeams(data)
@@ -178,7 +178,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
   // 2. Fetch metadata for Compare Seasons (Single Team)
   useEffect(() => {
     // Fetch all teams to populate selector
-    fetch('http://localhost:8000/api/teams')
+    fetch('/api/teams')
       .then((res) => res.json())
       .then((data) => {
         setTeamsMetadata(data)
@@ -203,7 +203,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
 
     setLoading(true)
     const seasonsQuery = selectedSeasons.join(',')
-    fetch(`http://localhost:8000/api/teams/${selectedTeamId}/seasons-compare?seasons=${seasonsQuery}`)
+    fetch(`/api/teams/${selectedTeamId}/seasons-compare?seasons=${seasonsQuery}`)
       .then((res) => res.json())
       .then((data) => {
         setChartDataSeasons(data)

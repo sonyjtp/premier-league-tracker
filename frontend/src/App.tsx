@@ -17,7 +17,7 @@ interface Team   { id: number; name: string; fpl_id: number | null; api_football
 
 type View =
   | { type: 'tab' }
-  | { type: 'team';          teamId: number }
+  | { type: 'team';          teamId: number; logoFallback?: string | null }
   | { type: 'external-team'; params: ExternalTeamParams }
   | { type: 'player';        playerId: number }
 
@@ -32,7 +32,7 @@ function App() {
   const [searchOpen,       setSearchOpen]       = useState(false)
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/seasons')
+    fetch('/api/seasons')
       .then(r => r.json())
       .then(data => {
         setSeasons(data)
@@ -45,7 +45,7 @@ function App() {
   // Auto-resolve default team internal ID
   useEffect(() => {
     if (settings.defaultTeamInternalId) return
-    fetch('http://localhost:8000/api/teams')
+    fetch('/api/teams')
       .then(r => r.json())
       .then((teams: Team[]) => {
         const match = teams.find(t => t.name === settings.defaultTeamName)
@@ -107,9 +107,9 @@ function App() {
             <p className="text-slate-500 text-sm">Make sure the PostgreSQL container and FastAPI app are running.</p>
           </div>
         ) : view.type === 'team' ? (
-          <TeamPage teamId={view.teamId} seasons={seasons} onBack={navigateBack} />
+          <TeamPage teamId={view.teamId} seasons={seasons} onBack={navigateBack} logoFallback={view.logoFallback} />
         ) : view.type === 'external-team' ? (
-          <ExternalTeamPage {...view.params} onBack={navigateBack} onViewFullHistory={navigateToTeam} onPlayerClick={navigateToPlayer} />
+          <ExternalTeamPage {...view.params} onBack={navigateBack} onViewFullHistory={(id, logo) => { setViewHistory([...viewHistory, view]); setView({ type: 'team', teamId: id, logoFallback: logo }) }} onPlayerClick={navigateToPlayer} />
         ) : view.type === 'player' ? (
           <PlayerPage playerId={view.playerId} onBack={navigateBack} />
         ) : (

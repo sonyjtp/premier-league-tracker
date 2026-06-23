@@ -23,6 +23,7 @@ COLUMN_MIGRATIONS = [
     "ALTER TABLE players ADD COLUMN IF NOT EXISTS fpl_team_id INTEGER",
     "CREATE INDEX IF NOT EXISTS idx_player_fpl_team ON players (fpl_team_id)",
     "ALTER TABLE matches ADD COLUMN IF NOT EXISTS api_football_fixture_id INTEGER UNIQUE",
+    "ALTER TABLE players ADD COLUMN IF NOT EXISTS understat_id INTEGER UNIQUE",
 ]
 
 

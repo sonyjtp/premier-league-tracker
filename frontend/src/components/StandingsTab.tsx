@@ -70,7 +70,7 @@ export const StandingsTab: React.FC<Props> = ({ seasons, selectedSeasonId, setSe
   useEffect(() => {
     if (!selectedSeasonId) return
     setLoading(true)
-    fetch(`http://localhost:8000/api/standings?season_id=${selectedSeasonId}`)
+    fetch(`/api/standings?season_id=${selectedSeasonId}`)
       .then(r => r.json())
       .then(data => {
         setStandings(data.standings ?? [])
@@ -87,7 +87,7 @@ export const StandingsTab: React.FC<Props> = ({ seasons, selectedSeasonId, setSe
   useEffect(() => {
     if (!selectedSeasonId || gameweek === maxGameweek) return
     setLoading(true)
-    fetch(`http://localhost:8000/api/standings?season_id=${selectedSeasonId}&gameweek=${gameweek}`)
+    fetch(`/api/standings?season_id=${selectedSeasonId}&gameweek=${gameweek}`)
       .then(r => r.json())
       .then(data => { setStandings(data.standings ?? []); setLoading(false) })
       .catch(() => setLoading(false))
@@ -96,7 +96,7 @@ export const StandingsTab: React.FC<Props> = ({ seasons, selectedSeasonId, setSe
   // Fetch previous gameweek for position-change arrows
   useEffect(() => {
     if (gameweek <= 1 || !selectedSeasonId) { setPrevPos(new Map()); return }
-    fetch(`http://localhost:8000/api/standings?season_id=${selectedSeasonId}&gameweek=${gameweek - 1}`)
+    fetch(`/api/standings?season_id=${selectedSeasonId}&gameweek=${gameweek - 1}`)
       .then(r => r.json())
       .then(data => {
         const m = new Map<number, number>()

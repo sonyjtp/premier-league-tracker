@@ -59,9 +59,9 @@ export const MatchDetailModal: React.FC<Props> = ({ fixtureId, onClose }) => {
 
   useEffect(() => {
     Promise.allSettled([
-      fetch(`http://localhost:8000/api/fixtures/${fixtureId}/events`).then(r => r.json()),
-      fetch(`http://localhost:8000/api/fixtures/${fixtureId}/lineups`).then(r => r.json()),
-      fetch(`http://localhost:8000/api/fixtures/${fixtureId}/analytics`).then(r => r.json()),
+      fetch(`/api/fixtures/${fixtureId}/events`).then(r => r.json()),
+      fetch(`/api/fixtures/${fixtureId}/lineups`).then(r => r.json()),
+      fetch(`/api/fixtures/${fixtureId}/analytics`).then(r => r.json()),
     ]).then(([e, l, a]) => {
       setEvents(e.status === 'fulfilled' && Array.isArray(e.value) ? e.value : [])
       setLineups(l.status === 'fulfilled' && Array.isArray(l.value) ? l.value : [])

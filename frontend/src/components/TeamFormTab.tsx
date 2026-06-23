@@ -54,7 +54,7 @@ export const TeamFormTab: React.FC<Props> = ({ seasons, selectedSeasonId, setSel
 
   useEffect(() => {
     if (!selectedSeasonId) return
-    fetch(`http://localhost:8000/api/teams?season_id=${selectedSeasonId}`)
+    fetch(`/api/teams?season_id=${selectedSeasonId}`)
       .then(r => r.json())
       .then(data => {
         setTeams(data)
@@ -73,8 +73,8 @@ export const TeamFormTab: React.FC<Props> = ({ seasons, selectedSeasonId, setSel
     if (!selectedSeasonId || !team1Id || !team2Id) return
     setLoading(true)
     Promise.all([
-      fetch(`http://localhost:8000/api/teams/${team1Id}/form?season_id=${selectedSeasonId}&last_x=${lastX}`).then(r => r.json()),
-      fetch(`http://localhost:8000/api/teams/${team2Id}/form?season_id=${selectedSeasonId}&last_x=${lastX}`).then(r => r.json()),
+      fetch(`/api/teams/${team1Id}/form?season_id=${selectedSeasonId}&last_x=${lastX}`).then(r => r.json()),
+      fetch(`/api/teams/${team2Id}/form?season_id=${selectedSeasonId}&last_x=${lastX}`).then(r => r.json()),
     ]).then(([d1, d2]) => { setForm1(d1); setForm2(d2); setLoading(false) })
       .catch(() => setLoading(false))
   }, [team1Id, team2Id, selectedSeasonId, lastX])
@@ -82,7 +82,7 @@ export const TeamFormTab: React.FC<Props> = ({ seasons, selectedSeasonId, setSel
   // Head-to-head
   useEffect(() => {
     if (!team1Id || !team2Id || team1Id === team2Id) return
-    fetch(`http://localhost:8000/api/head2head?team_a=${team1Id}&team_b=${team2Id}&limit=5`)
+    fetch(`/api/head2head?team_a=${team1Id}&team_b=${team2Id}&limit=5`)
       .then(r => r.json())
       .then(data => setH2h(Array.isArray(data) ? data : []))
       .catch(() => setH2h([]))

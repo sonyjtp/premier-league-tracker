@@ -13,6 +13,8 @@ from app.pipeline.sync_external import (
     sync_match_analytics,
     sync_player_advanced_stats,
     sync_player_profiles,
+    sync_understat_player_ids,
+    sync_understat_xg,
     sync_upcoming_fixtures,
 )
 from app.services import api_football, cache
@@ -1201,3 +1203,17 @@ def trigger_sync_player_advanced():
     """Aggregate xG/xA stats from API-Football fixtures for all PL players."""
     sync_player_advanced_stats()
     return {"status": "ok", "job": "player_advanced_stats"}
+
+
+@app.post("/api/admin/sync/understat-map", tags=["admin"])
+def trigger_understat_map():
+    """Fuzzy-match internal players to Understat IDs. Run once after new players are added."""
+    sync_understat_player_ids()
+    return {"status": "ok", "job": "understat_map"}
+
+
+@app.post("/api/admin/sync/understat-xg", tags=["admin"])
+def trigger_understat_xg():
+    """Fetch xG/xA from Understat for all mapped players across all seasons."""
+    sync_understat_xg()
+    return {"status": "ok", "job": "understat_xg"}

@@ -157,3 +157,130 @@ class TestTheStatsAPIService:
 
         # Verify module exists and can be imported
         assert the_stats_api is not None
+
+
+class TestUnderstatService:
+    """Tests for the Understat xG/xA wrapper service."""
+
+    def test_understat_module_exists(self):
+        """Test understat service can be imported and has expected interface."""
+        from app.services import understat
+
+        assert hasattr(understat, "get_player_season_stats")
+        assert hasattr(understat, "SUPPORTED_LEAGUES")
+
+    def test_supported_leagues_covers_big5(self):
+        """Understat covers exactly the Big-5 domestic leagues."""
+        from app.services.understat import SUPPORTED_LEAGUES
+
+        expected = {
+            "ENG-Premier League",
+            "ESP-La Liga",
+            "GER-Bundesliga",
+            "ITA-Serie A",
+            "FRA-Ligue 1",
+        }
+        assert set(SUPPORTED_LEAGUES) == expected
+
+    def test_get_player_season_stats_returns_list_on_error(self):
+        """Returns an empty list (not an exception) when soccerdata fails."""
+        from unittest.mock import patch
+
+        import soccerdata as sd
+        from app.services import understat
+
+        # soccerdata is imported inside get_player_season_stats, so patch at the top level
+        with patch.object(sd, "Understat", side_effect=RuntimeError("network error")):
+            result = understat.get_player_season_stats(["ENG-Premier League"], 2024)
+
+        assert result == []
+
+    def test_get_player_season_stats_schema(self):
+        """Each row returned contains the required keys."""
+        from unittest.mock import MagicMock, patch
+
+        import pandas as pd
+        import soccerdata as sd
+        from app.services import understat
+
+        fake_row = {
+            "player_id": 6026,
+            "player": "Richarlison",
+            "team": "Tottenham",
+            "league": "ENG-Premier League",
+            "season": "2425",
+            "xg": 4.3,
+            "xa": 0.8,
+            "np_xg": 4.0,
+            "goals": 4,
+            "assists": 1,
+            "shots": 17,
+            "key_passes": 12,
+            "minutes": 900,
+        }
+        fake_df = pd.DataFrame([fake_row])
+
+        mock_scraper = MagicMock()
+        mock_scraper.read_player_season_stats.return_value = fake_df
+        with patch.object(sd, "Understat", return_value=mock_scraper):
+            result = understat.get_player_season_stats(["ENG-Premier League"], 2024)
+
+        assert len(result) == 1
+        row = result[0]
+        required_keys = {
+            "player_id",
+            "player",
+            "team",
+            "league",
+            "season",
+            "xg",
+            "xa",
+            "np_xg",
+            "goals",
+            "assists",
+            "shots",
+            "key_passes",
+            "minutes",
+        }
+        assert required_keys.issubset(set(row.keys()))
+        assert row["player_id"] == 6026
+        assert row["xg"] == 4.3
+
+    def test_get_player_season_stats_no_pandas_in_return(self):
+        """Return values must be plain Python dicts/scalars, not pandas types."""
+        from unittest.mock import MagicMock, patch
+
+        import pandas as pd
+        import soccerdata as sd
+        from app.services import understat
+
+        fake_df = pd.DataFrame(
+            [
+                {
+                    "player_id": 7322,
+                    "player": "Bukayo Saka",
+                    "team": "Arsenal",
+                    "league": "ENG-Premier League",
+                    "season": "2425",
+                    "xg": 8.94,
+                    "xa": 11.58,
+                    "np_xg": 8.0,
+                    "goals": 14,
+                    "assists": 10,
+                    "shots": 75,
+                    "key_passes": 90,
+                    "minutes": 2900,
+                }
+            ]
+        )
+
+        mock_scraper = MagicMock()
+        mock_scraper.read_player_season_stats.return_value = fake_df
+        with patch.object(sd, "Understat", return_value=mock_scraper):
+            result = understat.get_player_season_stats(["ENG-Premier League"], 2024)
+
+        row = result[0]
+        # All numeric values must be plain Python types, not pandas scalars
+        assert isinstance(row["player_id"], int)
+        assert isinstance(row["xg"], float)
+        assert isinstance(row["minutes"], int)

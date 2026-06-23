@@ -92,6 +92,7 @@ class Player(Base):
     )  # FPL team ID (Team.fpl_id)
     api_football_id = Column(Integer, nullable=True, unique=True)
     stats_api_id = Column(Integer, nullable=True, unique=True)
+    understat_id = Column(Integer, nullable=True, unique=True)
 
     summaries = relationship("PlayerSeasonSummary", back_populates="player")
     match_stats = relationship("PlayerMatchStat", back_populates="player")

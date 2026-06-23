@@ -37,6 +37,7 @@ interface Props {
   teamId: number
   seasons: Season[]
   onBack: () => void
+  logoFallback?: string | null
   onTeamClick?: (teamId: number) => void
 }
 
@@ -70,7 +71,7 @@ const ordinal = (n: number) => {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export const TeamPage: React.FC<Props> = ({ teamId, seasons, onBack }) => {
+export const TeamPage: React.FC<Props> = ({ teamId, seasons, onBack, logoFallback }) => {
   const [overview,   setOverview]   = useState<Overview | null>(null)
   const [squad,      setSquad]      = useState<SquadPlayer[]>([])
   const [seasonId,   setSeasonId]   = useState<number | null>(null)
@@ -81,8 +82,8 @@ export const TeamPage: React.FC<Props> = ({ teamId, seasons, onBack }) => {
   useEffect(() => {
     setLoading(true)
     const url = seasonId
-      ? `http://localhost:8000/api/teams/${teamId}/overview?season_id=${seasonId}`
-      : `http://localhost:8000/api/teams/${teamId}/overview`
+      ? `/api/teams/${teamId}/overview?season_id=${seasonId}`
+      : `/api/teams/${teamId}/overview`
     fetch(url)
       .then(r => r.json())
       .then(data => {
@@ -97,7 +98,7 @@ export const TeamPage: React.FC<Props> = ({ teamId, seasons, onBack }) => {
   useEffect(() => {
     if (!overview?.team) return
     setSquadLoad(true)
-    fetch(`http://localhost:8000/api/teams/${teamId}/squad`)
+    fetch(`/api/teams/${teamId}/squad`)
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
@@ -162,8 +163,8 @@ export const TeamPage: React.FC<Props> = ({ teamId, seasons, onBack }) => {
         <div className="glass-card p-6 rounded-2xl border border-white/5">
           <div className="flex items-start gap-5 flex-wrap">
             {/* Logo */}
-            {profile?.logo_url ? (
-              <img src={profile.logo_url} alt={team.name} className="w-20 h-20 object-contain" />
+            {(profile?.logo_url ?? logoFallback) ? (
+              <img src={(profile?.logo_url ?? logoFallback)!} alt={team.name} className="w-20 h-20 object-contain" />
             ) : (
               <div className="w-20 h-20 rounded-2xl bg-slate-800 flex items-center justify-center">
                 <Shield className="w-10 h-10 text-slate-600" />
@@ -234,7 +235,7 @@ export const TeamPage: React.FC<Props> = ({ teamId, seasons, onBack }) => {
       {/* Form strip */}
       {form_string && (
         <div className="glass-card p-5 rounded-2xl border border-white/5">
-          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Recent Form</h3>
+          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Form</h3>
           <div className="flex items-center gap-2 flex-wrap">
             {form_string.split('').map((r, i) => (
               <span key={i} className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black ${RESULT_STYLE[r as 'W' | 'L' | 'D'] ?? 'bg-slate-700 text-slate-200'}`}>
@@ -248,7 +249,7 @@ export const TeamPage: React.FC<Props> = ({ teamId, seasons, onBack }) => {
       {/* Recent matches */}
       {recent_matches.length > 0 && (
         <div className="glass-card p-5 rounded-2xl border border-white/5">
-          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Recent Matches</h3>
+          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Last 10 Matches</h3>
           <div className="space-y-2">
             {recent_matches.map((m, i) => (
               <div key={i} className="flex items-center gap-3 text-xs font-semibold p-2.5 rounded-xl bg-slate-900/40 border border-white/5">

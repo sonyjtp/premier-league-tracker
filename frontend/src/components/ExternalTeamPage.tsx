@@ -31,7 +31,7 @@ interface SquadPlayer {
 
 interface Props extends ExternalTeamParams {
   onBack: () => void
-  onViewFullHistory: (internalTeamId: number) => void
+  onViewFullHistory: (internalTeamId: number, logo: string | null) => void
   onPlayerClick?: (playerId: number) => void
 }
 
@@ -78,20 +78,20 @@ export const ExternalTeamPage: React.FC<Props> = ({
   useEffect(() => {
     // Fetch recent fixtures
     setFixturesLoad(true)
-    fetch(`http://localhost:8000/api/external/teams/${teamApiId}/fixtures?league_id=${leagueId}&season=${season}&limit=10`)
+    fetch(`/api/external/teams/${teamApiId}/fixtures?league_id=${leagueId}&season=${season}&limit=10`)
       .then(r => r.json())
       .then(data => { setFixtures(Array.isArray(data) ? data : []); setFixturesLoad(false) })
       .catch(() => setFixturesLoad(false))
 
     // Fetch squad
     setSquadLoad(true)
-    fetch(`http://localhost:8000/api/external/teams/${teamApiId}/squad`)
+    fetch(`/api/external/teams/${teamApiId}/squad`)
       .then(r => r.json())
       .then(data => { setSquad(Array.isArray(data) ? data : []); setSquadLoad(false) })
       .catch(() => setSquadLoad(false))
 
     // Check if this is a PL team we have internally
-    fetch(`http://localhost:8000/api/teams/lookup?api_football_id=${teamApiId}`)
+    fetch(`/api/teams/lookup?api_football_id=${teamApiId}`)
       .then(r => r.json())
       .then(data => { if (data.internal_team_id) setInternalTeamId(data.internal_team_id) })
       .catch(() => {})
@@ -99,13 +99,13 @@ export const ExternalTeamPage: React.FC<Props> = ({
 
   // Look up player by API-Football ID, fallback to name search
   function lookupPlayerAndNavigate(apiFootballId: number, playerName: string) {
-    fetch(`http://localhost:8000/api/players/lookup/api-football/${apiFootballId}`)
+    fetch(`/api/players/lookup/api-football/${apiFootballId}`)
       .then(r => {
         if (r.ok) return r.json()
         // Fallback: extract last name from abbreviated format (e.g., "M. Gibbs-White" -> search "Gibbs-White")
         const lastNameMatch = playerName.match(/\.\s*(.+)$/) || playerName.match(/\s+(\S+)$/)
         const searchQuery = lastNameMatch ? lastNameMatch[1] : playerName
-        return fetch(`http://localhost:8000/api/players?query=${encodeURIComponent(searchQuery)}`)
+        return fetch(`/api/players?query=${encodeURIComponent(searchQuery)}`)
           .then(r => r.json())
           .then((data: any[]) => {
             if (Array.isArray(data) && data.length > 0) return data[0]
@@ -177,7 +177,7 @@ export const ExternalTeamPage: React.FC<Props> = ({
             {/* PL history button */}
             {internalTeamId && (
               <button
-                onClick={() => onViewFullHistory(internalTeamId)}
+                onClick={() => onViewFullHistory(internalTeamId, teamLogo)}
                 className="mt-3 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs font-bold text-indigo-400 hover:bg-indigo-500/20 transition-colors"
               >
                 <History className="w-3.5 h-3.5" />
@@ -217,7 +217,7 @@ export const ExternalTeamPage: React.FC<Props> = ({
       {/* Form strip */}
       {formStr && (
         <div className="glass-card p-5 rounded-2xl border border-white/5">
-          <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Recent Form</h3>
+          <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Form</h3>
           <div className="flex items-center gap-2">
             {formStr.split('').map((r, i) => (
               <span key={i} className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black ${RESULT_STYLE[r as 'W' | 'L' | 'D'] ?? 'bg-slate-700 text-slate-200'}`}>
@@ -230,7 +230,7 @@ export const ExternalTeamPage: React.FC<Props> = ({
 
       {/* Recent fixtures */}
       <div className="glass-card p-5 rounded-2xl border border-white/5">
-        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-4">Recent Matches</h3>
+        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-4">Last 10 Matches</h3>
         {fixturesLoad ? (
           <div className="flex justify-center py-8">
             <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
