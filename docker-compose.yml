@@ -20,3 +20,26 @@ services:
     ports:
       - "6379:6379"
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  backend:
+    image: rg.nl-ams.scw.cloud/premierleague/pl-backend:latest
+    container_name: pl_backend
+    restart: always
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+pg8000://pl_user:pl_password@db:5432/pl_db
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+
+  frontend:
+    image: rg.nl-ams.scw.cloud/premierleague/pl-frontend:latest
+    container_name: pl_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend

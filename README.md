@@ -90,7 +90,7 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
 | **Frontend**         | React 18, TypeScript, Vite, Tailwind CSS, Recharts                        |
 | **Backend**          | Python 3.10+, FastAPI, SQLAlchemy ORM, Pydantic                           |
 | **Database**         | PostgreSQL 15, Redis (caching)                                            |
-| **Infrastructure**   | Docker, Docker Compose                                                    |
+| **Infrastructure**   | Docker, Docker Compose, Kubernetes (Scaleway Kapsule), nginx ingress      |
 | **API Integration**  | Fantasy Premier League, API-Football, Understat (soccerdata), TheStatsAPI |
 | **State Management** | React Context API                                                         |
 | **Scheduling**       | APScheduler                                                               |
@@ -140,7 +140,22 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
 │   ├── package.json
 │   ├── tsconfig.json
 │   └── vite.config.ts
-├── docker-compose.yml                # PostgreSQL + Redis containers
+├── k8s/                              # Kubernetes manifests (Scaleway)
+│   ├── 00-namespace.yaml             # premierleague namespace
+│   ├── 01-postgres.yaml              # PostgreSQL deployment + PVC + service
+│   ├── 02-redis.yaml                 # Redis deployment + service
+│   ├── 03-backend.yaml               # Backend deployment + service
+│   ├── 04-frontend.yaml              # Frontend deployment + service
+│   ├── 05-cluster-issuer.yaml        # cert-manager Let's Encrypt issuer
+│   ├── 06-ingress.yaml               # nginx ingress + TLS for both domains
+│   ├── secrets.yaml                  # Actual secrets — gitignored, never commit
+│   └── secrets.yaml.template         # Secrets template with placeholder values
+├── backend/
+│   └── Dockerfile                    # Backend container image
+├── frontend/
+│   ├── Dockerfile                    # Frontend container image (multi-stage, nginx)
+│   └── nginx.conf                    # nginx config: SPA routing + /api proxy to backend
+├── docker-compose.yml                # All 4 services (db, redis, backend, frontend)
 ├── db_backup.sh                      # Database backup script
 ├── db_restore.sh                     # Database restore script
 └── README.md                         # This file
@@ -162,9 +177,9 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
    cd premier-league-tracker
    ```
 
-2. **Spin up PostgreSQL & Redis**
+2. **Spin up PostgreSQL & Redis** (local dev only)
    ```bash
-   docker compose up -d
+   docker compose up -d db redis
    docker compose logs -f  # Verify containers are running
    ```
 
@@ -209,6 +224,119 @@ A comprehensive Python-React-PostgreSQL analytics platform for visualizing and c
    npm run dev
    # App available at http://localhost:5173
    ```
+
+## 🚢 Production Deployment (Scaleway Kubernetes)
+
+The application runs on a Scaleway Kapsule cluster at:
+- **https://thesouthstandlens.fhlcrab32.com** (primary)
+- **https://premierleague.fhlcrab32.com** (alias)
+
+### Architecture
+
+```
+Internet → nginx ingress (LoadBalancer) → frontend (nginx, serves React SPA)
+                                        → /api/* proxied → backend (FastAPI)
+                                                         → postgres (ClusterIP)
+                                                         → redis (ClusterIP)
+```
+
+TLS is managed automatically by cert-manager + Let's Encrypt.
+
+### Building & Pushing Images
+
+Always build for `linux/amd64` (the cluster runs on x86):
+
+```bash
+docker buildx build --platform linux/amd64 \
+  -t rg.nl-ams.scw.cloud/premierleague/pl-backend:latest --push ./backend
+
+docker buildx build --platform linux/amd64 \
+  -t rg.nl-ams.scw.cloud/premierleague/pl-frontend:latest --push ./frontend
+```
+
+After pushing, roll out the new images:
+
+```bash
+export KUBECONFIG=kubeconfig-premierleague-cluster.yaml
+kubectl rollout restart deployment/backend deployment/frontend -n premierleague
+```
+
+### First-Time Cluster Setup
+
+```bash
+export KUBECONFIG=kubeconfig-premierleague-cluster.yaml
+
+# 1. Apply all manifests (namespace first, then everything else)
+kubectl apply -f k8s/00-namespace.yaml
+
+# 2. Create registry pull secret (uses your local Docker Desktop credentials)
+docker-credential-desktop get <<< "rg.nl-ams.scw.cloud"   # verify logged in
+kubectl create secret docker-registry registry-creds \
+  --docker-server=rg.nl-ams.scw.cloud \
+  --docker-username=<scw-username> \
+  --docker-password=<scw-token> \
+  --namespace=premierleague
+
+# 3. Create app secrets (copy secrets.yaml.template → secrets.yaml, fill in values)
+kubectl apply -f k8s/secrets.yaml
+
+# 4. Apply workloads
+kubectl apply -f k8s/01-postgres.yaml \
+              -f k8s/02-redis.yaml \
+              -f k8s/03-backend.yaml \
+              -f k8s/04-frontend.yaml
+
+# 5. Install nginx ingress controller + cert-manager (one-time)
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/cloud/deploy.yaml
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.3/cert-manager.yaml
+
+# 6. Apply ingress + TLS (after cert-manager is ready)
+kubectl apply -f k8s/05-cluster-issuer.yaml -f k8s/06-ingress.yaml
+```
+
+### Initialising the Database
+
+The database schema must be created once after a fresh Postgres deployment:
+
+```bash
+export KUBECONFIG=kubeconfig-premierleague-cluster.yaml
+BACKEND_POD=$(kubectl get pod -n premierleague -l app=backend -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n premierleague "$BACKEND_POD" -- python -m app.init_db
+```
+
+Then seed data via the admin sync endpoints (see [Manual Sync Triggers](#manual-sync-triggers)):
+
+```bash
+BASE=https://thesouthstandlens.fhlcrab32.com
+curl -X POST $BASE/api/admin/sync/upcoming
+curl -X POST $BASE/api/admin/sync/player-profiles
+curl -X POST $BASE/api/admin/sync/understat-map
+curl -X POST $BASE/api/admin/sync/understat-xg
+```
+
+### Secrets
+
+- `k8s/secrets.yaml` — real credentials, **gitignored, never commit**
+- `k8s/secrets.yaml.template` — placeholder template, safe to commit
+- `kubeconfig-premierleague-cluster.yaml` — cluster credentials, **gitignored**
+
+### Useful Commands
+
+```bash
+export KUBECONFIG=kubeconfig-premierleague-cluster.yaml
+
+# Check pod status
+kubectl get pods -n premierleague
+
+# Tail backend logs
+kubectl logs -n premierleague deployment/backend -f
+
+# Check TLS certificate status
+kubectl get certificate -n premierleague
+
+# Open a shell in the backend pod
+kubectl exec -it -n premierleague deployment/backend -- bash
+```
 
 ## 📡 API Endpoints
 
@@ -312,26 +440,32 @@ STATS_API_KEY=your_key_here
 Manually trigger any sync job via API POST requests (useful for testing):
 
 ```bash
+# Local dev
+BASE=http://localhost:8000
+
+# Production
+BASE=https://thesouthstandlens.fhlcrab32.com
+
 # One-time: fuzzy-match internal players to Understat IDs (run after adding new players)
-curl -X POST http://localhost:8000/api/admin/sync/understat-map
+curl -X POST $BASE/api/admin/sync/understat-map
 
 # Fetch xG/xA from Understat for all mapped players across all seasons
-curl -X POST http://localhost:8000/api/admin/sync/understat-xg
+curl -X POST $BASE/api/admin/sync/understat-xg
 
 # Sync player advanced stats (shots, minutes) from API-Football fixtures
-curl -X POST http://localhost:8000/api/admin/sync/player-advanced
+curl -X POST $BASE/api/admin/sync/player-advanced
 
 # Other available triggers:
-curl -X POST http://localhost:8000/api/admin/sync/upcoming
-curl -X POST http://localhost:8000/api/admin/sync/match-analytics
-curl -X POST http://localhost:8000/api/admin/sync/player-profiles
+curl -X POST $BASE/api/admin/sync/upcoming
+curl -X POST $BASE/api/admin/sync/match-analytics
+curl -X POST $BASE/api/admin/sync/player-profiles
 ```
 
 **Initial setup sequence** (run once after first install):
 ```bash
-python -m app.pipeline.migrate                  # adds understat_id column
-curl -X POST .../api/admin/sync/understat-map   # fuzzy-match players → Understat IDs
-curl -X POST .../api/admin/sync/understat-xg    # populate xG/xA for all seasons
+python -m app.pipeline.migrate                       # adds understat_id column
+curl -X POST $BASE/api/admin/sync/understat-map      # fuzzy-match players → Understat IDs
+curl -X POST $BASE/api/admin/sync/understat-xg       # populate xG/xA for all seasons
 ```
 
 **Note:** `understat-map` uses a multi-strategy fuzzy matcher (token sort ratio + token set ratio + word-boundary fallback) to match FPL player names to Understat's canonical names. A specificity bonus prefers longer Understat names to resolve ambiguous matches (e.g. "Gabriel Jesus" beats "Gabriel" for Gabriel Fernando de Jesus). Players with common names shared by multiple squad members are left unmapped to avoid wrong assignments — these can be set manually via direct DB update.
@@ -413,7 +547,6 @@ curl -X POST .../api/admin/sync/understat-xg    # populate xG/xA for all seasons
 - **Organized Match Statistics** – Statistics grouped by category (Attacking, Defensive, Possession, Set Pieces, Discipline) for easier interpretation
 - **H2H Match History** – Complete head-to-head records sorted by date with clickable individual matches
 - **Smart Navigation** – Back buttons remember your previous page (not just the home page)
-- **Rebranded UI** – "The SouthStand Lens" identity across the application
 
 ## 🚧 Future Features & Roadmap
 
