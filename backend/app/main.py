@@ -2,6 +2,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import List, Optional
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+
 from app import crud, schemas
 from app.database import get_db
 from app.models import Player
@@ -28,10 +33,6 @@ from app.services.cache import (
     get_or_fetch_with_db,
     season_ttl,
 )
-from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 
 scheduler = BackgroundScheduler(timezone="UTC")
 

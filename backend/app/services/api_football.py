@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 import requests
+
 from app.config import settings
 
 

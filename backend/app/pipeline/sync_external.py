@@ -6,12 +6,13 @@ import logging
 import time
 from datetime import date, datetime, timedelta
 
+from fuzzywuzzy import fuzz
+from rapidfuzz import fuzz as rfuzz
+
 from app import crud
 from app.database import SessionLocal
 from app.services import api_football, cache, the_stats_api
 from app.services import understat as understat_service
-from fuzzywuzzy import fuzz
-from rapidfuzz import fuzz as rfuzz
 
 logger = logging.getLogger(__name__)
 

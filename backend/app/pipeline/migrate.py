@@ -11,9 +11,10 @@ sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
+from sqlalchemy import text  # noqa: E402
+
 from app import models  # noqa: E402,F401 registers all models on Base.metadata
 from app.database import Base, engine  # noqa: E402
-from sqlalchemy import text  # noqa: E402
 
 COLUMN_MIGRATIONS = [
     "ALTER TABLE teams ADD COLUMN IF NOT EXISTS api_football_id INTEGER UNIQUE",

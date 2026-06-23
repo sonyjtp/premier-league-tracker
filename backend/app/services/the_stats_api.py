@@ -7,6 +7,7 @@ Verify them against your specific TheStatsAPI plan documentation and update as n
 from typing import Optional
 
 import requests
+
 from app.config import settings
 
 _BASE = settings.STATS_API_HOST.rstrip("/")

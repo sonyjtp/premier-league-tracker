@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import and_, func, or_
+from sqlalchemy.orm import Session
+
 from app.models import (
     Competition,
     GameweekStanding,
@@ -18,8 +21,6 @@ from app.models import (
     TeamProfile,
     TeamSeason,
 )
-from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import Session
 
 # ── Existing lookups ──────────────────────────────────────────────────────────
 

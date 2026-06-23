@@ -42,8 +42,9 @@ import json
 from typing import Any, Optional
 
 import redis
-from app.config import settings
 from pydantic import BaseModel
+
+from app.config import settings
 
 # ── TTL constants (seconds) ───────────────────────────────────────────────────
 LIVE_TTL = 60
