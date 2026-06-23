@@ -332,6 +332,7 @@ class TestUnderstatService:
         from unittest.mock import patch
 
         import soccerdata as sd
+
         from app.services import understat
 
         # soccerdata is imported inside get_player_season_stats, so patch at the top level
@@ -346,6 +347,7 @@ class TestUnderstatService:
 
         import pandas as pd
         import soccerdata as sd
+
         from app.services import understat
 
         fake_row = {
@@ -397,6 +399,7 @@ class TestUnderstatService:
 
         import pandas as pd
         import soccerdata as sd
+
         from app.services import understat
 
         fake_df = pd.DataFrame(

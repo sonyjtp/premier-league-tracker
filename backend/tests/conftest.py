@@ -1,7 +1,8 @@
 import pytest
-from app.database import Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from app.database import Base
 
 DATABASE_URL = "sqlite:///:memory:"
 

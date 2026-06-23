@@ -1,11 +1,12 @@
 from datetime import date
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 from app.database import Base
 from app.models import Competition, GameweekStanding, Match, Season, Team, TeamSeason
 from app.pipeline.ingest import precompute_standings
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 
 # Setup an in-memory SQLite database for testing
