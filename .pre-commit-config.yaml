@@ -40,3 +40,11 @@ repos:
         types: [python]
         stages: [commit]
         pass_filenames: false
+
+      - id: frontend-lint
+        name: eslint
+        entry: bash -c 'cd frontend && npm run lint'
+        language: system
+        types_or: [ts, tsx, javascript]
+        stages: [push]
+        pass_filenames: false
