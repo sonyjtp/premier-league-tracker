@@ -189,11 +189,11 @@ export const StandingsTab: React.FC<Props> = ({ seasons, selectedSeasonId, setSe
                   <th className="py-3 px-2 w-6"></th>{/* change arrow */}
                   <th className="py-3 px-3">Club</th>
                   <th className="py-3 px-3 text-center">MP</th>
-                  <th className="py-3 px-3 text-center">W</th>
-                  <th className="py-3 px-3 text-center">D</th>
-                  <th className="py-3 px-3 text-center">L</th>
-                  <th className="py-3 px-3 text-center">GF</th>
-                  <th className="py-3 px-3 text-center">GA</th>
+                  <th className="py-3 px-3 text-center hidden sm:table-cell">W</th>
+                  <th className="py-3 px-3 text-center hidden sm:table-cell">D</th>
+                  <th className="py-3 px-3 text-center hidden sm:table-cell">L</th>
+                  <th className="py-3 px-3 text-center hidden sm:table-cell">GF</th>
+                  <th className="py-3 px-3 text-center hidden sm:table-cell">GA</th>
                   <th className="py-3 px-3 text-center">GD</th>
                   <th className="py-3 px-3 text-center hidden sm:table-cell">−Pts</th>
                   <th className="py-3 px-4 text-center text-indigo-400">Pts</th>
@@ -216,11 +216,11 @@ export const StandingsTab: React.FC<Props> = ({ seasons, selectedSeasonId, setSe
                         </button>
                       </td>
                       <td className="py-3.5 px-3 text-center tabular-nums">{item.played}</td>
-                      <td className="py-3.5 px-3 text-center tabular-nums text-emerald-400 font-semibold">{item.wins}</td>
-                      <td className="py-3.5 px-3 text-center tabular-nums">{item.draws}</td>
-                      <td className="py-3.5 px-3 text-center tabular-nums text-rose-400/80">{item.losses}</td>
-                      <td className="py-3.5 px-3 text-center tabular-nums">{item.goals_for}</td>
-                      <td className="py-3.5 px-3 text-center tabular-nums">{item.goals_against}</td>
+                      <td className="py-3.5 px-3 text-center tabular-nums text-emerald-400 font-semibold hidden sm:table-cell">{item.wins}</td>
+                      <td className="py-3.5 px-3 text-center tabular-nums hidden sm:table-cell">{item.draws}</td>
+                      <td className="py-3.5 px-3 text-center tabular-nums text-rose-400/80 hidden sm:table-cell">{item.losses}</td>
+                      <td className="py-3.5 px-3 text-center tabular-nums hidden sm:table-cell">{item.goals_for}</td>
+                      <td className="py-3.5 px-3 text-center tabular-nums hidden sm:table-cell">{item.goals_against}</td>
                       <td className={`py-3.5 px-3 text-center tabular-nums font-semibold ${item.goal_difference > 0 ? 'text-emerald-400' : item.goal_difference < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
                         {item.goal_difference > 0 ? `+${item.goal_difference}` : item.goal_difference}
                       </td>

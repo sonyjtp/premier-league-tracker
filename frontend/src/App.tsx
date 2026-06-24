@@ -99,7 +99,7 @@ function App() {
     <div className="min-h-screen bg-[#060a13] text-slate-100 pb-20 selection:bg-indigo-500 selection:text-white">
       <Navbar activeTab={activeTab} setActiveTab={handleTabChange} onSearchOpen={openSearch} />
 
-      <main className="max-w-7xl mx-auto px-6">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-40 gap-4">
             <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />

@@ -249,23 +249,25 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
         <div className="flex bg-slate-950 p-1.5 rounded-xl border border-white/5">
           <button
             onClick={() => setMode('teams')}
-            className={`px-5 py-2 rounded-lg text-xs font-bold transition-all ${
+            className={`px-4 sm:px-5 py-2 rounded-lg text-xs font-bold transition-all ${
               mode === 'teams'
                 ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/10'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Compare Teams in a Season
+            <span className="hidden sm:inline">Compare Teams in a Season</span>
+            <span className="sm:hidden">Teams</span>
           </button>
           <button
             onClick={() => setMode('seasons')}
-            className={`px-5 py-2 rounded-lg text-xs font-bold transition-all ${
+            className={`px-4 sm:px-5 py-2 rounded-lg text-xs font-bold transition-all ${
               mode === 'seasons'
                 ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/10'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Compare Seasons of a Team
+            <span className="hidden sm:inline">Compare Seasons of a Team</span>
+            <span className="sm:hidden">Seasons</span>
           </button>
         </div>
       </div>
@@ -321,7 +323,7 @@ export const RiseFallTab: React.FC<RiseFallTabProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
 
         {/* Left checklist panel */}
-        <div className="glass-card p-5 rounded-2xl border border-white/5 min-h-[320px] max-h-[520px] flex flex-col lg:col-span-1">
+        <div className="glass-card p-5 rounded-2xl border border-white/5 max-h-[220px] lg:max-h-[520px] flex flex-col lg:col-span-1">
           {mode === 'teams' ? (
             /* Teams Checklist */
             <>

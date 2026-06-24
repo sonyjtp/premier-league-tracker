@@ -228,10 +228,10 @@ export const TeamFormTab: React.FC<Props> = ({ seasons, selectedSeasonId, setSel
                   const team1IsHome = m.home_team === team1Name
                   const res = m.result === 'D' ? 'D' : (team1IsHome && m.result === 'H') || (!team1IsHome && m.result === 'A') ? 'W' : 'L'
                   return (
-                    <div key={i} className="flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl bg-slate-900/40 border border-white/5">
-                      <span className="text-slate-500">{m.season_label}</span>
-                      <span className="text-slate-300">{m.home_team} <span className="text-slate-600">vs</span> {m.away_team}</span>
-                      <span className={`px-2 py-0.5 rounded font-bold ${
+                    <div key={i} className="flex items-center gap-2 text-xs font-semibold p-2.5 rounded-xl bg-slate-900/40 border border-white/5">
+                      <span className="text-slate-500 shrink-0 hidden sm:inline">{m.season_label}</span>
+                      <span className="text-slate-300 flex-1 truncate text-center min-w-0">{m.home_team} <span className="text-slate-600">vs</span> {m.away_team}</span>
+                      <span className={`shrink-0 px-2 py-0.5 rounded font-bold ${
                         res === 'W' ? 'text-emerald-400 bg-emerald-950/30 border border-emerald-500/20' :
                         res === 'L' ? 'text-rose-400   bg-rose-950/30   border border-rose-500/20'    :
                                      'text-amber-400  bg-amber-950/30  border border-amber-500/20'

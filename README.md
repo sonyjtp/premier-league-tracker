@@ -420,10 +420,13 @@ STATS_API_KEY=your_key_here
 - These defaults pre-select in Team Form, Rise & Fall, and other comparison views
 
 ### Responsive Design
-- Mobile-first Tailwind CSS layout
+- Adaptive layout using Tailwind CSS breakpoints (`sm`, `md`, `lg`)
 - Glassmorphism UI with backdrop blur effects
 - Dark theme with indigo/emerald accents
-- Charts adapt from fixed to responsive heights
+- **Standings tables** – secondary columns (W/D/L, GF/GA) are hidden on small screens; rank, club, GD, and points always visible
+- **Rise & Fall** – mode selector uses short labels on mobile; checklist panel collapses to a compact height below the chart
+- **Team Form** – H2H match rows truncate long team names cleanly on narrow viewports
+- Charts use `ResponsiveContainer` to fill available width at any screen size
 
 ## 🔄 Data Sync & Caching
 
